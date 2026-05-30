@@ -1,0 +1,40 @@
+{
+  "defaults": {
+    "interval": "1d",
+    "history_days": 900,
+    "ema_length": 200,
+    "initial_balance": 10000,
+    "leverage": 1,
+    "alert_on": ["entry_signal", "exit_signal"]
+  },
+  "symbols": {
+    "AAPL": {
+      "enabled": true,
+      "source": "static_forward_best_combo",
+      "mode": "weekly_trend",
+      "atr_length": 10,
+      "factor": 3.0,
+      "swing_lookback": 14,
+      "max_trades": 2
+    },
+    "NVDA": {
+      "enabled": false,
+      "source": "adaptive_forward_recurring_best",
+      "mode": "trend",
+      "atr_length": 14,
+      "factor": 3.3,
+      "swing_lookback": 10,
+      "max_trades": 1
+    },
+    "MSFT": {
+      "enabled": false,
+      "source": "manual_review",
+      "mode": "tp",
+      "atr_length": 10,
+      "factor": 3.0,
+      "swing_lookback": 12,
+      "tp_multiplier": 1.5,
+      "max_trades": 2
+    }
+  }
+}

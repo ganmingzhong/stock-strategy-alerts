@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategy Alerts</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #101214;
+            --panel: #181c20;
+            --field: #11161a;
+            --ink: #eef3f7;
+            --muted: #a7b3bf;
+            --line: #2c353e;
+            --accent: #4ea1ff;
+            --accent-dark: #2f7fd8;
+            --ok: #58d68d;
+            --bad: #ff7b72;
+            --warning-panel: #3a1f22;
+            --ok-panel: #173225;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 16px;
+            line-height: 1.4;
+        }
+
+        main {
+            width: min(760px, 100%);
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        header {
+            padding: 10px 0 14px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 28px;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin: 12px 0;
+            padding: 14px;
+        }
+
+        h2 {
+            font-size: 18px;
+            margin: 0 0 10px;
+        }
+
+        label {
+            display: block;
+            font-weight: 700;
+            font-size: 14px;
+            margin: 12px 0 6px;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 12px;
+            font: inherit;
+            background: var(--field);
+            color: var(--ink);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--accent);
+            outline: 2px solid rgba(78, 161, 255, 0.2);
+        }
+
+        textarea {
+            min-height: 148px;
+            resize: vertical;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0 12px;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        button {
+            border: 0;
+            border-radius: 6px;
+            padding: 13px 14px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: #071018;
+        }
+
+        .primary:active {
+            background: var(--accent-dark);
+        }
+
+        .secondary {
+            background: #27313a;
+            color: var(--ink);
+        }
+
+        .status {
+            display: none;
+            border-radius: 6px;
+            padding: 11px 12px;
+            margin: 12px 0;
+            font-weight: 700;
+        }
+
+        .status.ok {
+            display: block;
+            background: var(--ok-panel);
+            color: var(--ok);
+        }
+
+        .status.error {
+            display: block;
+            background: var(--warning-panel);
+            color: var(--bad);
+        }
+
+        .symbol-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .symbol-card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            background: var(--field);
+        }
+
+        .symbol-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-weight: 700;
+        }
+
+        .symbol-details {
+            color: var(--muted);
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .symbol-actions {
+            margin-top: 10px;
+        }
+
+        .danger {
+            background: var(--warning-panel);
+            color: var(--bad);
+            width: 100%;
+        }
+
+        @media (max-width: 560px) {
+            main {
+                padding: 12px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .grid,
+            .actions {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Strategy Alerts</h1>
+            <p class="subtitle">Paste copied strategy JSON, review the fields, then save it for the scheduler.</p>
+        </header>
+
+        <div id="status" class="status"></div>
+
+        <section>
+            <h2>Paste Strategy</h2>
+            <textarea id="paste-box" placeholder='Paste copied JSON, for example: {"symbol":"AAPL","mode":"weekly_trend","atr_length":10}'></textarea>
+            <div class="actions">
+                <button type="button" class="primary" id="parse-btn">Fill Fields</button>
+                <button type="button" class="secondary" id="clear-btn">Clear</button>
+            </div>
+        </section>
+
+        <section>
+            <h2>Alert Config</h2>
+            <label for="symbol">Symbol</label>
+            <input id="symbol" inputmode="text" autocomplete="off" placeholder="AAPL">
+
+            <label for="mode">Mode</label>
+            <select id="mode">
+                <option value="weekly_trend">Weekly Trend</option>
+                <option value="tp">Take Profit</option>
+                <option value="trend">Trend Change</option>
+                <option value="cross_trend">Cross Trend</option>
+            </select>
+
+            <div class="grid">
+                <div>
+                    <label for="interval">Interval</label>
+                    <input id="interval" value="1d">
+                </div>
+                <div>
+                    <label for="history_days">History Days</label>
+                    <input id="history_days" type="number" min="1" value="900">
+                </div>
+                <div>
+                    <label for="atr_length">ATR Length</label>
+                    <input id="atr_length" type="number" min="1">
+                </div>
+                <div>
+                    <label for="factor">Factor</label>
+                    <input id="factor" type="number" min="0.1" step="0.1">
+                </div>
+                <div>
+                    <label for="swing_lookback">Swing Lookback</label>
+                    <input id="swing_lookback" type="number" min="1">
+                </div>
+                <div>
+                    <label for="tp_multiplier">TP Multiplier</label>
+                    <input id="tp_multiplier" type="number" min="0.1" step="0.1" value="1.0">
+                </div>
+                <div>
+                    <label for="max_trades">Max Trades</label>
+                    <input id="max_trades" type="number" min="1">
+                </div>
+            </div>
+
+            <div class="actions">
+                <button type="button" class="primary" id="save-btn">Save Alert</button>
+                <button type="button" class="secondary" id="reload-btn">Reload Active</button>
+            </div>
+        </section>
+
+        <section>
+            <h2>Active Alerts</h2>
+            <div id="active-symbols" class="symbol-list">Loading...</div>
+        </section>
+    </main>
+
+    <script>
+        const fields = [
+            "symbol",
+            "mode",
+            "interval",
+            "history_days",
+            "atr_length",
+            "factor",
+            "swing_lookback",
+            "tp_multiplier",
+            "max_trades",
+        ];
+
+        function showStatus(message, type = "ok") {
+            const target = document.getElementById("status");
+            target.textContent = message;
+            target.className = `status ${type}`;
+        }
+
+        function normalizePayload(raw) {
+            const payload = raw.current || raw.config || raw;
+            if (payload.params) {
+                return { ...payload, ...payload.params };
+            }
+            return payload;
+        }
+
+        function parsePastedStrategy() {
+            const text = document.getElementById("paste-box").value.trim();
+            if (!text) {
+                throw new Error("Paste the copied strategy JSON first.");
+            }
+            return normalizePayload(JSON.parse(text));
+        }
+
+        function fillFields(payload) {
+            fields.forEach(field => {
+                const input = document.getElementById(field);
+                if (!input || payload[field] === undefined || payload[field] === null) return;
+                input.value = payload[field];
+            });
+        }
+
+        function readFields() {
+            return {
+                symbol: document.getElementById("symbol").value.trim().toUpperCase(),
+                mode: document.getElementById("mode").value,
+                interval: document.getElementById("interval").value.trim() || "1d",
+                history_days: Number(document.getElementById("history_days").value || 900),
+                atr_length: Number(document.getElementById("atr_length").value),
+                factor: Number(document.getElementById("factor").value),
+                swing_lookback: Number(document.getElementById("swing_lookback").value),
+                tp_multiplier: Number(document.getElementById("tp_multiplier").value || 1),
+                max_trades: Number(document.getElementById("max_trades").value),
+                source: "phone_alert_web",
+                enabled: true,
+            };
+        }
+
+        async function saveAlert() {
+            const response = await fetch("/api/symbols", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(readFields()),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || "Save failed.");
+            showStatus(`Saved ${result.symbol} alert config.`, "ok");
+            await loadActiveSymbols();
+        }
+
+        async function removeAlert(symbol) {
+            const confirmed = window.confirm(`Remove ${symbol} from scheduler alerts?`);
+            if (!confirmed) return;
+
+            const response = await fetch(`/api/symbols/${encodeURIComponent(symbol)}`, {
+                method: "DELETE",
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || "Remove failed.");
+            showStatus(`Removed ${symbol} from alert config.`, "ok");
+            await loadActiveSymbols();
+        }
+
+        function formatParams(symbol, cfg) {
+            const tp = cfg.mode === "tp" ? cfg.tp_multiplier : "-";
+            return `${cfg.interval || "1d"} | ATR ${cfg.atr_length}, F ${cfg.factor}, Swing ${cfg.swing_lookback}, TP ${tp}, Max ${cfg.max_trades}`;
+        }
+
+        async function loadActiveSymbols() {
+            const target = document.getElementById("active-symbols");
+            const response = await fetch("/api/config");
+            const result = await response.json();
+            const symbols = result.config?.symbols || {};
+            const entries = Object.entries(symbols);
+            if (entries.length === 0) {
+                target.textContent = "No active symbols yet.";
+                return;
+            }
+            target.innerHTML = entries.map(([symbol, cfg]) => `
+                <div class="symbol-card">
+                    <div class="symbol-title">
+                        <span>${symbol}</span>
+                        <span>${cfg.enabled === false ? "Disabled" : cfg.mode}</span>
+                    </div>
+                    <div class="symbol-details">${formatParams(symbol, cfg)}</div>
+                    <div class="symbol-actions">
+                        <button type="button" class="danger" data-remove-symbol="${symbol}">Remove</button>
+                    </div>
+                </div>
+            `).join("");
+            target.querySelectorAll("[data-remove-symbol]").forEach(button => {
+                button.addEventListener("click", () => {
+                    removeAlert(button.dataset.removeSymbol).catch(error => showStatus(error.message, "error"));
+                });
+            });
+        }
+
+        document.getElementById("parse-btn").addEventListener("click", () => {
+            try {
+                fillFields(parsePastedStrategy());
+                showStatus("Fields filled from copied JSON.", "ok");
+            } catch (error) {
+                showStatus(error.message, "error");
+            }
+        });
+
+        document.getElementById("save-btn").addEventListener("click", () => {
+            saveAlert().catch(error => showStatus(error.message, "error"));
+        });
+
+        document.getElementById("reload-btn").addEventListener("click", () => {
+            loadActiveSymbols().catch(error => showStatus(error.message, "error"));
+        });
+
+        document.getElementById("clear-btn").addEventListener("click", () => {
+            document.getElementById("paste-box").value = "";
+            fields.forEach(field => {
+                const input = document.getElementById(field);
+                if (input && field !== "mode" && field !== "interval" && field !== "history_days" && field !== "tp_multiplier") {
+                    input.value = "";
+                }
+            });
+            showStatus("Cleared paste box and editable strategy fields.", "ok");
+        });
+
+        loadActiveSymbols().catch(error => showStatus(error.message, "error"));
+    </script>
+</body>
+</html>
