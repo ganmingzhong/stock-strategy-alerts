@@ -133,12 +133,35 @@ def event_key(symbol, mode, event_type, event_date):
     return f"{symbol}:{mode}:{event_type}:{pd.to_datetime(event_date).strftime('%Y-%m-%d')}"
 
 
+def format_strategy_params(params):
+    mode = str(params.get("mode", "weekly_trend")).strip().lower()
+    mode_label = MODE_CONFIG.get(mode, {}).get("label", mode)
+
+    parts = [
+        f"mode={mode_label}",
+        f"atr_length={int(params.get('atr_length', 14))}",
+        f"factor={float(params.get('factor', 3.0)):g}",
+        f"ema_length={int(params.get('ema_length', 200))}",
+        f"swing_lookback={int(params.get('swing_lookback', 12))}",
+        f"max_trades={int(params.get('max_trades', 1))}",
+    ]
+
+    if "tp_multiplier" in params or mode == "tp":
+        parts.append(f"tp_multiplier={float(params.get('tp_multiplier', 1.0)):g}")
+
+    if params.get("source"):
+        parts.append(f"source={params['source']}")
+
+    return ", ".join(parts)
+
+
 def collect_latest_events(symbol, params, results, trades):
     if results.empty:
         return []
 
     mode = str(params.get("mode", "weekly_trend")).strip().lower()
     mode_label = MODE_CONFIG[mode]["label"]
+    strategy_params = format_strategy_params(params)
     alert_on = set(params.get("alert_on") or ["entry_signal", "exit_signal"])
     latest = results.iloc[-1]
     latest_date = latest["Date"]
@@ -152,6 +175,7 @@ def collect_latest_events(symbol, params, results, trades):
             "body": (
                 f"Signal bar: {pd.to_datetime(latest_date).strftime('%Y-%m-%d')}\n"
                 f"Mode: {mode_label}\n"
+                f"Strategy params: {strategy_params}\n"
                 f"Close: {format_price(latest.get('Close'))}\n"
                 f"EMA {params.get('ema_length', 200)}: {format_price(latest.get('ema200'))}\n"
                 f"Supertrend: {'Bullish' if int(latest.get('direction', 0)) == 1 else 'Bearish'}\n"
@@ -173,6 +197,7 @@ def collect_latest_events(symbol, params, results, trades):
                 "body": (
                     f"Exit date: {pd.to_datetime(exit_date).strftime('%Y-%m-%d')}\n"
                     f"Mode: {mode_label}\n"
+                    f"Strategy params: {strategy_params}\n"
                     f"Side: {str(trade.get('type') or '-').upper()}\n"
                     f"Exit reason: {trade.get('exit_reason') or '-'}\n"
                     f"Entry: {format_price(trade.get('entry_price'))}\n"
