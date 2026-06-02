@@ -22,14 +22,15 @@
     },
     "MSFT": {
       "enabled": true,
-      "source": "static_forward_best_combo",
+      "source": "phone_alert_web",
       "mode": "tp",
       "interval": "1d",
+      "history_days": 5000,
       "atr_length": 10,
       "factor": 3.6,
-      "swing_lookback": 14,
+      "swing_lookback": 10,
       "tp_multiplier": 1.0,
-      "max_trades": 3
+      "max_trades": 2
     },
     "SPY": {
       "enabled": true,
@@ -37,11 +38,23 @@
       "mode": "cross_trend",
       "interval": "1d",
       "history_days": 5000,
-      "atr_length": 10,
-      "factor": 3.6,
+      "atr_length": 17,
+      "factor": 3.0,
       "swing_lookback": 10,
       "tp_multiplier": 1.0,
       "max_trades": 1
+    },
+    "GLD": {
+      "enabled": true,
+      "source": "phone_alert_web",
+      "mode": "tp",
+      "interval": "1d",
+      "history_days": 3000,
+      "atr_length": 10,
+      "factor": 3.0,
+      "swing_lookback": 20,
+      "tp_multiplier": 2.0,
+      "max_trades": 2
     }
   }
 }

@@ -3,8 +3,8 @@ name: Backend Alert Scheduler
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: '0 12 * * *'
-      timezone: 'Asia/Kuala_Lumpur'
+    # GitHub Actions cron uses UTC. 08:35 UTC = 4:35 PM Asia/Kuala_Lumpur/Singapore.
+    - cron: '35 8 * * *'
 
 jobs:
   run-alert:

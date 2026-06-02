@@ -10,6 +10,7 @@ Use this as the normal Replit run command when you want to edit alert parameters
 python alert_web/app.py
 ```
 
+The app starts on port `5001` by default, so it does not conflict with the analysis website if that project is using port `5000`.
 Open the Replit web URL, paste the copied alert JSON from the analysis/database website, tap **Fill Fields**, review, then tap **Save Alert**.
 
 ## Replit Scheduled Deployment

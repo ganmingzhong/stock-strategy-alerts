@@ -2,6 +2,18 @@ import pandas as pd
 import numpy as np
 
 
+WEEKLY_CLOSE_RULES = {
+    'friday': 'W-FRI',
+    'saturday': 'W-SAT',
+    'sunday': 'W-SUN',
+}
+
+
+def resolve_weekly_close_day(value):
+    day = str(value or 'friday').strip().lower()
+    return day if day in WEEKLY_CLOSE_RULES else 'friday'
+
+
 class SimpleMovingAverageStrategy:
     """
     A simple SMA crossover strategy:
@@ -172,6 +184,7 @@ class SupertrendStrategy:
         initial_balance=10000,
         exit_mode='trend',
         entry_mode='flip',
+        weekly_close_day='friday',
     ):
         if atr_length <= 0 or ema_length <= 0 or swing_lookback <= 0:
             raise ValueError("ATR, EMA, and swing lookback must be positive numbers.")
@@ -187,7 +200,8 @@ class SupertrendStrategy:
         self.leverage = float(leverage)
         self.initial_balance = float(initial_balance)
         self.exit_mode = exit_mode if exit_mode in {'trend', 'tp', 'sl'} else 'trend'
-        self.entry_mode = entry_mode if entry_mode in {'flip', 'cross', 'weekly_long'} else 'flip'
+        self.entry_mode = entry_mode if entry_mode in {'flip', 'cross', 'weekly_long', 'weekly_bull_ema'} else 'flip'
+        self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
         self.trades = []
 
     def _rma(self, series, length):
@@ -258,7 +272,7 @@ class SupertrendStrategy:
             .copy()
             .sort_values('Date')
             .set_index('Date')
-            .resample('W-FRI')
+            .resample(WEEKLY_CLOSE_RULES[self.weekly_close_day], label='right', closed='right')
             .agg({
                 'Open': 'first',
                 'High': 'max',
@@ -304,7 +318,7 @@ class SupertrendStrategy:
 
         df['supertrend'] = supertrend
         df['direction'] = direction
-        if self.entry_mode == 'weekly_long':
+        if self.entry_mode in {'weekly_long', 'weekly_bull_ema'}:
             df['weekly_supertrend'], df['weekly_direction'] = self._calculate_weekly_supertrend_filter(df)
         else:
             df['weekly_supertrend'] = np.nan
@@ -667,7 +681,26 @@ class SupertrendStrategy:
                     and row['weekly_direction'] == 1
                     and limited_base_ok
                 )
-                short_cond = False
+                short_cond = (
+                    just_turned_red
+                    and row['Close'] < row['ema200']
+                    and row['Open'] < row['ema200']
+                    and row['weekly_direction'] == -1
+                    and limited_base_ok
+                )
+            elif self.entry_mode == 'weekly_bull_ema':
+                long_cond = (
+                    row['direction'] == 1
+                    and row['Close'] > row['ema200']
+                    and row['weekly_direction'] == 1
+                    and limited_base_ok
+                )
+                short_cond = (
+                    row['direction'] == -1
+                    and row['Close'] < row['ema200']
+                    and row['weekly_direction'] == -1
+                    and limited_base_ok
+                )
             else:
                 long_cond = (
                     just_turned_green
@@ -717,6 +750,51 @@ class SupertrendStrategy:
                         'is_cross_entry': False,
                     }
                     df.loc[df.index[i], 'signal'] = -1
+            elif self.entry_mode == 'weekly_bull_ema':
+                if long_cond:
+                    trade_equity = equity
+                    entry_price = float(row['Close'])
+                    qty = max((equity * self.leverage) / entry_price, 0)
+                    if qty > 0:
+                        position = 1
+                        current_trade = {
+                            'entry_date': row['Date'],
+                            'entry_reason': 'daily_weekly_bull_ema',
+                            'entry_price': entry_price,
+                            'exit_date': None,
+                            'exit_price': None,
+                            'type': 'long',
+                            'qty': qty,
+                            'tp': None,
+                            'sl': None,
+                            'exit_reason': None,
+                            'pnl': None,
+                            'return': None,
+                        }
+                        trade_count += 1
+                        df.loc[df.index[i], 'signal'] = 1
+                elif short_cond:
+                    trade_equity = equity
+                    entry_price = float(row['Close'])
+                    qty = max((equity * self.leverage) / entry_price, 0)
+                    if qty > 0:
+                        position = -1
+                        current_trade = {
+                            'entry_date': row['Date'],
+                            'entry_reason': 'daily_weekly_bear_ema',
+                            'entry_price': entry_price,
+                            'exit_date': None,
+                            'exit_price': None,
+                            'type': 'short',
+                            'qty': qty,
+                            'tp': None,
+                            'sl': None,
+                            'exit_reason': None,
+                            'pnl': None,
+                            'return': None,
+                        }
+                        trade_count += 1
+                        df.loc[df.index[i], 'signal'] = -1
             else:
                 if long_cond and i + 1 < len(df):
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
@@ -775,7 +853,17 @@ class SupertrendEmaGridSearchStrategy:
         'max_trades': list(range(1, 4)),
     }
 
-    def __init__(self, ema_length=200, leverage=1, initial_equity=10000, min_trades=5, sort_by='composite', exit_mode='tp', evaluation_start_index=0):
+    def __init__(
+        self,
+        ema_length=200,
+        leverage=1,
+        initial_equity=10000,
+        min_trades=5,
+        sort_by='composite',
+        exit_mode='tp',
+        evaluation_start_index=0,
+        weekly_close_day='friday',
+    ):
         if ema_length <= 0:
             raise ValueError('EMA length must be greater than zero.')
         if leverage <= 0:
@@ -791,16 +879,18 @@ class SupertrendEmaGridSearchStrategy:
             'composite', 'sharpe', 'profit_factor', 'net_return', 'win_rate'
         } else 'composite'
         requested_mode = str(exit_mode or 'tp').strip().lower()
-        if requested_mode not in {'tp', 'trend', 'cross_trend', 'weekly_trend'}:
+        if requested_mode not in {'tp', 'trend', 'cross_trend', 'weekly_trend', 'weekly_bull_ema'}:
             requested_mode = 'tp'
         self.strategy_mode = requested_mode
         self.exit_mode = 'tp' if requested_mode == 'tp' else 'trend'
         self.entry_mode = (
             'cross' if requested_mode == 'cross_trend'
+            else 'weekly_bull_ema' if requested_mode == 'weekly_bull_ema'
             else 'weekly_long' if requested_mode == 'weekly_trend'
             else 'flip'
         )
         self.evaluation_start_index = max(int(evaluation_start_index or 0), 0)
+        self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
 
     @staticmethod
     def _rma(arr, length):
@@ -878,7 +968,7 @@ class SupertrendEmaGridSearchStrategy:
 
         weekly = (
             rows.set_index('Date')
-            .resample('W-FRI')
+            .resample(WEEKLY_CLOSE_RULES[self.weekly_close_day], label='right', closed='right')
             .agg({
                 'Open': 'first',
                 'High': 'max',
@@ -1204,8 +1294,52 @@ class SupertrendEmaGridSearchStrategy:
                     and weekly_direction[i] == 1
                     and limited_base_ok
                 )
+                short_sig = (
+                    just_turned_red
+                    and c < e2 and o < e2
+                    and weekly_direction[i] == -1
+                    and limited_base_ok
+                )
                 if long_sig and i + 1 < n:
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
+                elif short_sig and i + 1 < n:
+                    pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
+            elif self.entry_mode == 'weekly_bull_ema':
+                long_sig = (
+                    direction[i] == 1
+                    and c > e2
+                    and weekly_direction[i] == 1
+                    and limited_base_ok
+                )
+                short_sig = (
+                    direction[i] == -1
+                    and c < e2
+                    and weekly_direction[i] == -1
+                    and limited_base_ok
+                )
+
+                if long_sig:
+                    qty = max((equity * self.leverage) / c, 0)
+                    if qty > 0:
+                        position = {
+                            'side': 'long', 'entry': c, 'qty': qty,
+                            'tp': None, 'sl': None,
+                            'trade_equity': equity,
+                            'entry_index': i,
+                            'entry_reason': 'daily_weekly_bull_ema',
+                        }
+                        trade_count += 1
+                elif short_sig:
+                    qty = max((equity * self.leverage) / c, 0)
+                    if qty > 0:
+                        position = {
+                            'side': 'short', 'entry': c, 'qty': qty,
+                            'tp': None, 'sl': None,
+                            'trade_equity': equity,
+                            'entry_index': i,
+                            'entry_reason': 'daily_weekly_bear_ema',
+                        }
+                        trade_count += 1
             else:
                 long_sig = (
                     just_turned_green
@@ -1363,7 +1497,7 @@ class SupertrendEmaGridSearchStrategy:
                     high_arr, low_arr, close_arr, atr_cache[atr_length], factor
                 )
         weekly_direction_cache = {}
-        if self.entry_mode == 'weekly_long':
+        if self.entry_mode in {'weekly_long', 'weekly_bull_ema'}:
             for atr_length in set(grid['atr_length']):
                 for factor in set(grid['factor']):
                     weekly_direction_cache[(atr_length, factor)] = self._build_weekly_direction_filter(
