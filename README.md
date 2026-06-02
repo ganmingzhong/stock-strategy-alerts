@@ -15,6 +15,8 @@ Open the Replit web URL, paste the copied alert JSON from the analysis/database 
 
 ## Replit Scheduled Deployment
 
+Schedule added.
+
 Add a Replit Secret named:
 
 ```text
