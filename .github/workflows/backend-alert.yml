@@ -1,10 +1,9 @@
 name: Backend Alert Scheduler
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   schedule:
-    # GitHub Actions cron uses UTC. Every 5 minutes for schedule testing.
-    - cron: '*/5 * * * *'
+    - cron: '0 9 * * *'  # Daily at 9 AM UTC
 
 jobs:
   run-alert:
