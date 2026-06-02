@@ -67,6 +67,18 @@
       "swing_lookback": 20,
       "tp_multiplier": 1.0,
       "max_trades": 2
+    },
+    "UNH": {
+      "enabled": true,
+      "source": "phone_alert_web",
+      "mode": "tp",
+      "interval": "1d",
+      "history_days": 5000,
+      "atr_length": 14,
+      "factor": 3.6,
+      "swing_lookback": 20,
+      "tp_multiplier": 1.0,
+      "max_trades": 3
     }
   }
 }
