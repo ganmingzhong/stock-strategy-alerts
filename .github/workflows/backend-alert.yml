@@ -1,9 +1,8 @@
 name: Backend Alert Scheduler
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
+    - cron: '23 12 * * *' 
 
 jobs:
   run-alert:
