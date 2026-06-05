@@ -27,6 +27,7 @@ MODE_CONFIG = {
     "trend": {"entry_mode": "flip", "exit_mode": "trend", "label": "Supertrend Exit on Trend Change"},
     "cross_trend": {"entry_mode": "cross", "exit_mode": "trend", "label": "Supertrend/EMA Cross + Trend Change"},
     "weekly_trend": {"entry_mode": "weekly_long", "exit_mode": "trend", "label": "Weekly Filter + Trend Change"},
+    "weekly_bull_ema": {"entry_mode": "weekly_bull_ema", "exit_mode": "trend", "label": "Daily + Weekly + EMA200"},
 }
 
 
