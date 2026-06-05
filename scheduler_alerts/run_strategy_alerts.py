@@ -189,6 +189,8 @@ def collect_latest_events(symbol, params, results, trades):
             exit_date = trade.get("exit_date")
             if exit_date is None:
                 continue
+            if str(trade.get("exit_reason") or "").strip().lower() == "end of data":
+                continue
             if pd.to_datetime(exit_date).date() != pd.to_datetime(latest_date).date():
                 continue
             events.append({
