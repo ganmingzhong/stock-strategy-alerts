@@ -28,7 +28,15 @@ MODE_CONFIG = {
     "cross_trend": {"entry_mode": "cross", "exit_mode": "trend", "label": "Supertrend/EMA Cross + Trend Change"},
     "weekly_trend": {"entry_mode": "weekly_long", "exit_mode": "trend", "label": "Weekly Filter + Trend Change"},
     "weekly_bull_ema": {"entry_mode": "weekly_bull_ema", "exit_mode": "trend", "label": "Daily + Weekly + EMA200"},
+    "adx_trend": {"entry_mode": "adx_anytime", "exit_mode": "trend", "label": "Supertrend + EMA200 + ADX"},
+    "adx_tp": {"entry_mode": "adx_anytime", "exit_mode": "tp", "label": "Supertrend + EMA200 + ADX with TP"},
+    "adx_uptrend": {"entry_mode": "adx_uptrend", "exit_mode": "trend", "label": "Supertrend + EMA200 + ADX Rising"},
+    "adx_uptrend_tp": {"entry_mode": "adx_uptrend", "exit_mode": "tp", "label": "Supertrend + EMA200 + ADX Rising with TP"},
 }
+
+ADX_MODES = {"adx_trend", "adx_tp", "adx_uptrend", "adx_uptrend_tp"}
+ADX_UPTREND_MODES = {"adx_uptrend", "adx_uptrend_tp"}
+TP_MODES = {"tp", "adx_tp", "adx_uptrend_tp"}
 
 
 def load_json(path, default):
@@ -121,6 +129,8 @@ def build_strategy(params):
         initial_balance=float(params.get("initial_balance", 10000)),
         exit_mode=mode_config["exit_mode"],
         entry_mode=mode_config["entry_mode"],
+        adx_threshold=float(params.get("adx_threshold", 25)),
+        adx_trend_lookback=int(params.get("adx_trend_lookback", 3)),
     )
 
 
@@ -147,8 +157,14 @@ def format_strategy_params(params):
         f"max_trades={int(params.get('max_trades', 1))}",
     ]
 
-    if "tp_multiplier" in params or mode == "tp":
+    if "tp_multiplier" in params or mode in TP_MODES:
         parts.append(f"tp_multiplier={float(params.get('tp_multiplier', 1.0)):g}")
+
+    if mode in ADX_MODES:
+        parts.append(f"adx_threshold={float(params.get('adx_threshold', 25)):g}")
+
+    if mode in ADX_UPTREND_MODES:
+        parts.append(f"adx_trend_lookback={int(params.get('adx_trend_lookback', 3))}")
 
     if params.get("source"):
         parts.append(f"source={params['source']}")
@@ -166,6 +182,7 @@ def collect_latest_events(symbol, params, results, trades):
     alert_on = set(params.get("alert_on") or ["entry_signal", "exit_signal"])
     latest = results.iloc[-1]
     latest_date = latest["Date"]
+    adx_line = f"ADX: {format_price(latest.get('adx'))}\n" if mode in ADX_MODES else ""
     events = []
 
     if "entry_signal" in alert_on and int(latest.get("signal", 0) or 0) in {1, -1}:
@@ -180,6 +197,7 @@ def collect_latest_events(symbol, params, results, trades):
                 f"Close: {format_price(latest.get('Close'))}\n"
                 f"EMA {params.get('ema_length', 200)}: {format_price(latest.get('ema200'))}\n"
                 f"Supertrend: {'Bullish' if int(latest.get('direction', 0)) == 1 else 'Bearish'}\n"
+                f"{adx_line}"
                 f"Weekly Supertrend: {format_weekly_direction(latest)}\n"
                 "Action: review for next market open."
             ),

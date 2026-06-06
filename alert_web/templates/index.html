@@ -235,9 +235,14 @@
             <label for="mode">Mode</label>
             <select id="mode">
                 <option value="weekly_trend">Weekly Trend</option>
+                <option value="weekly_bull_ema">Daily + Weekly + EMA200</option>
                 <option value="tp">Take Profit</option>
                 <option value="trend">Trend Change</option>
                 <option value="cross_trend">Cross Trend</option>
+                <option value="adx_trend">Supertrend + EMA200 + ADX</option>
+                <option value="adx_tp">Supertrend + EMA200 + ADX with TP</option>
+                <option value="adx_uptrend">Supertrend + EMA200 + ADX Rising</option>
+                <option value="adx_uptrend_tp">Supertrend + EMA200 + ADX Rising with TP</option>
             </select>
 
             <div class="grid">
@@ -269,6 +274,14 @@
                     <label for="max_trades">Max Trades</label>
                     <input id="max_trades" type="number" min="1">
                 </div>
+                <div>
+                    <label for="adx_threshold">ADX Threshold</label>
+                    <input id="adx_threshold" type="number" min="0.1" step="0.1" value="25">
+                </div>
+                <div>
+                    <label for="adx_trend_lookback">ADX Trend Lookback</label>
+                    <input id="adx_trend_lookback" type="number" min="1" value="3">
+                </div>
             </div>
 
             <div class="actions">
@@ -294,6 +307,8 @@
             "swing_lookback",
             "tp_multiplier",
             "max_trades",
+            "adx_threshold",
+            "adx_trend_lookback",
         ];
 
         function showStatus(message, type = "ok") {
@@ -337,6 +352,8 @@
                 swing_lookback: Number(document.getElementById("swing_lookback").value),
                 tp_multiplier: Number(document.getElementById("tp_multiplier").value || 1),
                 max_trades: Number(document.getElementById("max_trades").value),
+                adx_threshold: Number(document.getElementById("adx_threshold").value || 25),
+                adx_trend_lookback: Number(document.getElementById("adx_trend_lookback").value || 3),
                 source: "phone_alert_web",
                 enabled: true,
             };
@@ -368,8 +385,13 @@
         }
 
         function formatParams(symbol, cfg) {
-            const tp = cfg.mode === "tp" ? cfg.tp_multiplier : "-";
-            return `${cfg.interval || "1d"} | ATR ${cfg.atr_length}, F ${cfg.factor}, Swing ${cfg.swing_lookback}, TP ${tp}, Max ${cfg.max_trades}`;
+            const tpModes = new Set(["tp", "adx_tp", "adx_uptrend_tp"]);
+            const adxModes = new Set(["adx_trend", "adx_tp", "adx_uptrend", "adx_uptrend_tp"]);
+            const uptrendModes = new Set(["adx_uptrend", "adx_uptrend_tp"]);
+            const tp = tpModes.has(cfg.mode) ? cfg.tp_multiplier : "-";
+            const adx = adxModes.has(cfg.mode) ? `, ADX >= ${cfg.adx_threshold || 25}` : "";
+            const adxTrend = uptrendModes.has(cfg.mode) ? `, ADX N ${cfg.adx_trend_lookback || 3}` : "";
+            return `${cfg.interval || "1d"} | ATR ${cfg.atr_length}, F ${cfg.factor}, Swing ${cfg.swing_lookback}, TP ${tp}, Max ${cfg.max_trades}${adx}${adxTrend}`;
         }
 
         async function loadActiveSymbols() {
@@ -422,7 +444,15 @@
             document.getElementById("paste-box").value = "";
             fields.forEach(field => {
                 const input = document.getElementById(field);
-                if (input && field !== "mode" && field !== "interval" && field !== "history_days" && field !== "tp_multiplier") {
+                if (
+                    input
+                    && field !== "mode"
+                    && field !== "interval"
+                    && field !== "history_days"
+                    && field !== "tp_multiplier"
+                    && field !== "adx_threshold"
+                    && field !== "adx_trend_lookback"
+                ) {
                     input.value = "";
                 }
             });

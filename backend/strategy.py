@@ -185,11 +185,17 @@ class SupertrendStrategy:
         exit_mode='trend',
         entry_mode='flip',
         weekly_close_day='friday',
+        adx_threshold=25,
+        adx_trend_lookback=3,
     ):
         if atr_length <= 0 or ema_length <= 0 or swing_lookback <= 0:
             raise ValueError("ATR, EMA, and swing lookback must be positive numbers.")
         if factor <= 0 or tp_multiplier <= 0 or max_trades <= 0 or leverage <= 0:
             raise ValueError("Supertrend factor, TP multiplier, max trades, and leverage must be positive.")
+        if adx_threshold <= 0:
+            raise ValueError("ADX threshold must be greater than zero.")
+        if adx_trend_lookback <= 0:
+            raise ValueError("ADX trend lookback must be greater than zero.")
 
         self.atr_length = int(atr_length)
         self.factor = float(factor)
@@ -200,8 +206,10 @@ class SupertrendStrategy:
         self.leverage = float(leverage)
         self.initial_balance = float(initial_balance)
         self.exit_mode = exit_mode if exit_mode in {'trend', 'tp', 'sl'} else 'trend'
-        self.entry_mode = entry_mode if entry_mode in {'flip', 'cross', 'weekly_long', 'weekly_bull_ema'} else 'flip'
+        self.entry_mode = entry_mode if entry_mode in {'flip', 'cross', 'weekly_long', 'weekly_bull_ema', 'adx_anytime', 'adx_uptrend'} else 'flip'
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
+        self.adx_threshold = float(adx_threshold)
+        self.adx_trend_lookback = int(adx_trend_lookback)
         self.trades = []
 
     def _rma(self, series, length):
@@ -263,6 +271,29 @@ class SupertrendStrategy:
 
         return supertrend, direction
 
+    def _calculate_adx(self, high, low, close):
+        high_vals = high.to_numpy(dtype=float)
+        low_vals = low.to_numpy(dtype=float)
+
+        up_move = pd.Series(high_vals - np.roll(high_vals, 1), index=high.index)
+        down_move = pd.Series(np.roll(low_vals, 1) - low_vals, index=low.index)
+        up_move.iloc[0] = 0
+        down_move.iloc[0] = 0
+
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+        true_range = pd.concat([
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ], axis=1).max(axis=1)
+
+        atr = self._rma(true_range, self.atr_length)
+        plus_di = 100 * (self._rma(plus_dm, self.atr_length) / atr.replace(0, np.nan))
+        minus_di = 100 * (self._rma(minus_dm, self.atr_length) / atr.replace(0, np.nan))
+        dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+        return self._rma(dx.fillna(0), self.atr_length)
+
     def _calculate_weekly_supertrend_filter(self, df):
         if 'Date' not in df.columns or df.empty:
             return pd.Series(np.nan, index=df.index), pd.Series(0, index=df.index, dtype=int)
@@ -318,6 +349,7 @@ class SupertrendStrategy:
 
         df['supertrend'] = supertrend
         df['direction'] = direction
+        df['adx'] = self._calculate_adx(high, low, close)
         if self.entry_mode in {'weekly_long', 'weekly_bull_ema'}:
             df['weekly_supertrend'], df['weekly_direction'] = self._calculate_weekly_supertrend_filter(df)
         else:
@@ -403,7 +435,12 @@ class SupertrendStrategy:
         supertrend_crossed_below_ema &= valid_cross_bar
         supertrend_ema_cross = supertrend_crossed_above_ema | supertrend_crossed_below_ema
 
-        start_idx = max(self.swing_lookback + 1, self.atr_length + 1, int(trade_start_index or 0), 1)
+        if self.entry_mode in {'adx_anytime', 'adx_uptrend'}:
+            start_idx = max(int(trade_start_index or 0) + self.swing_lookback, 1)
+        else:
+            start_idx = max(self.swing_lookback + 1, self.atr_length + 1, int(trade_start_index or 0), 1)
+        if self.entry_mode == 'adx_uptrend':
+            start_idx = max(start_idx, int(trade_start_index or 0) + self.adx_trend_lookback)
         required_cross_side = None
         if self.entry_mode == 'cross':
             ref_idx = max(start_idx - 1, 0)
@@ -701,6 +738,30 @@ class SupertrendStrategy:
                     and row['weekly_direction'] == -1
                     and limited_base_ok
                 )
+            elif self.entry_mode in {'adx_anytime', 'adx_uptrend'}:
+                adx_uptrend_ok = (
+                    self.entry_mode != 'adx_uptrend'
+                    or (
+                        i >= self.adx_trend_lookback
+                        and pd.notna(row['adx'])
+                        and pd.notna(df.iloc[i - self.adx_trend_lookback]['adx'])
+                        and (row['adx'] - df.iloc[i - self.adx_trend_lookback]['adx']) > 0
+                    )
+                )
+                long_cond = (
+                    row['direction'] == 1
+                    and row['Close'] > row['ema200']
+                    and row['adx'] >= self.adx_threshold
+                    and adx_uptrend_ok
+                    and limited_base_ok
+                )
+                short_cond = (
+                    row['direction'] == -1
+                    and row['Close'] < row['ema200']
+                    and row['adx'] >= self.adx_threshold
+                    and adx_uptrend_ok
+                    and limited_base_ok
+                )
             else:
                 long_cond = (
                     just_turned_green
@@ -750,23 +811,33 @@ class SupertrendStrategy:
                         'is_cross_entry': False,
                     }
                     df.loc[df.index[i], 'signal'] = -1
-            elif self.entry_mode == 'weekly_bull_ema':
+            elif self.entry_mode in {'weekly_bull_ema', 'adx_anytime', 'adx_uptrend'}:
                 if long_cond:
                     trade_equity = equity
                     entry_price = float(row['Close'])
+                    risk = entry_price - swing_low[i]
                     qty = max((equity * self.leverage) / entry_price, 0)
-                    if qty > 0:
+                    can_enter = self.exit_mode == 'trend' or (pd.notna(risk) and risk > 0)
+                    if qty > 0 and can_enter:
                         position = 1
+                        tp_price = entry_price + (self.tp_multiplier * risk) if self.exit_mode == 'tp' else None
+                        sl_price = float(swing_low[i]) if self.exit_mode in {'tp', 'sl'} else None
                         current_trade = {
                             'entry_date': row['Date'],
-                            'entry_reason': 'daily_weekly_bull_ema',
+                            'entry_reason': (
+                                'daily_supertrend_ema_adx_uptrend'
+                                if self.entry_mode == 'adx_uptrend'
+                                else 'daily_supertrend_ema_adx'
+                                if self.entry_mode == 'adx_anytime'
+                                else 'daily_weekly_bull_ema'
+                            ),
                             'entry_price': entry_price,
                             'exit_date': None,
                             'exit_price': None,
                             'type': 'long',
                             'qty': qty,
-                            'tp': None,
-                            'sl': None,
+                            'tp': tp_price,
+                            'sl': sl_price,
                             'exit_reason': None,
                             'pnl': None,
                             'return': None,
@@ -776,19 +847,29 @@ class SupertrendStrategy:
                 elif short_cond:
                     trade_equity = equity
                     entry_price = float(row['Close'])
+                    risk = swing_high[i] - entry_price
                     qty = max((equity * self.leverage) / entry_price, 0)
-                    if qty > 0:
+                    can_enter = self.exit_mode == 'trend' or (pd.notna(risk) and risk > 0)
+                    if qty > 0 and can_enter:
                         position = -1
+                        tp_price = entry_price - (self.tp_multiplier * risk) if self.exit_mode == 'tp' else None
+                        sl_price = float(swing_high[i]) if self.exit_mode in {'tp', 'sl'} else None
                         current_trade = {
                             'entry_date': row['Date'],
-                            'entry_reason': 'daily_weekly_bear_ema',
+                            'entry_reason': (
+                                'daily_supertrend_ema_adx_uptrend_short'
+                                if self.entry_mode == 'adx_uptrend'
+                                else 'daily_supertrend_ema_adx_short'
+                                if self.entry_mode == 'adx_anytime'
+                                else 'daily_weekly_bear_ema'
+                            ),
                             'entry_price': entry_price,
                             'exit_date': None,
                             'exit_price': None,
                             'type': 'short',
                             'qty': qty,
-                            'tp': None,
-                            'sl': None,
+                            'tp': tp_price,
+                            'sl': sl_price,
                             'exit_reason': None,
                             'pnl': None,
                             'return': None,
@@ -863,6 +944,8 @@ class SupertrendEmaGridSearchStrategy:
         exit_mode='tp',
         evaluation_start_index=0,
         weekly_close_day='friday',
+        adx_threshold=25,
+        adx_trend_lookback=3,
     ):
         if ema_length <= 0:
             raise ValueError('EMA length must be greater than zero.')
@@ -870,6 +953,10 @@ class SupertrendEmaGridSearchStrategy:
             raise ValueError('Leverage must be greater than zero.')
         if initial_equity <= 0:
             raise ValueError('Initial equity must be greater than zero.')
+        if adx_threshold <= 0:
+            raise ValueError('ADX threshold must be greater than zero.')
+        if adx_trend_lookback <= 0:
+            raise ValueError('ADX trend lookback must be greater than zero.')
 
         self.ema_length = int(ema_length)
         self.leverage = float(leverage)
@@ -879,18 +966,25 @@ class SupertrendEmaGridSearchStrategy:
             'composite', 'sharpe', 'profit_factor', 'net_return', 'win_rate'
         } else 'composite'
         requested_mode = str(exit_mode or 'tp').strip().lower()
-        if requested_mode not in {'tp', 'trend', 'cross_trend', 'weekly_trend', 'weekly_bull_ema'}:
+        if requested_mode not in {
+            'tp', 'trend', 'cross_trend', 'weekly_trend', 'weekly_bull_ema',
+            'adx_trend', 'adx_tp', 'adx_uptrend', 'adx_uptrend_tp'
+        }:
             requested_mode = 'tp'
         self.strategy_mode = requested_mode
-        self.exit_mode = 'tp' if requested_mode == 'tp' else 'trend'
+        self.exit_mode = 'tp' if requested_mode in {'tp', 'adx_tp', 'adx_uptrend_tp'} else 'trend'
         self.entry_mode = (
             'cross' if requested_mode == 'cross_trend'
             else 'weekly_bull_ema' if requested_mode == 'weekly_bull_ema'
             else 'weekly_long' if requested_mode == 'weekly_trend'
+            else 'adx_uptrend' if requested_mode in {'adx_uptrend', 'adx_uptrend_tp'}
+            else 'adx_anytime' if requested_mode in {'adx_trend', 'adx_tp'}
             else 'flip'
         )
         self.evaluation_start_index = max(int(evaluation_start_index or 0), 0)
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
+        self.adx_threshold = float(adx_threshold)
+        self.adx_trend_lookback = int(adx_trend_lookback)
 
     @staticmethod
     def _rma(arr, length):
@@ -955,6 +1049,28 @@ class SupertrendEmaGridSearchStrategy:
         turned_green[0] = False
         turned_red[0] = False
         return turned_green, turned_red, dire, st
+
+    def _build_adx(self, high_arr, low_arr, close_arr, atr, atr_length):
+        prev_high = np.empty(len(high_arr))
+        prev_low = np.empty(len(low_arr))
+        prev_high[0] = high_arr[0]
+        prev_low[0] = low_arr[0]
+        prev_high[1:] = high_arr[:-1]
+        prev_low[1:] = low_arr[:-1]
+
+        up_move = high_arr - prev_high
+        down_move = prev_low - low_arr
+        up_move[0] = 0.0
+        down_move[0] = 0.0
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        safe_atr = np.where(atr == 0, np.nan, atr)
+        plus_di = 100 * (self._rma(plus_dm, atr_length) / safe_atr)
+        minus_di = 100 * (self._rma(minus_dm, atr_length) / safe_atr)
+        di_sum = plus_di + minus_di
+        dx = 100 * (np.abs(plus_di - minus_di) / np.where(di_sum == 0, np.nan, di_sum))
+        return self._rma(np.nan_to_num(dx, nan=0.0), atr_length)
 
     def _build_weekly_direction_filter(self, date_arr, open_arr, high_arr, low_arr, close_arr, atr_length, factor):
         rows = pd.DataFrame({
@@ -1029,6 +1145,9 @@ class SupertrendEmaGridSearchStrategy:
         weekly_direction = caches.get('weekly_direction', {}).get(supertrend_key)
         if weekly_direction is None:
             weekly_direction = np.zeros(n, dtype=int)
+        adx_vals = caches.get('adx', {}).get(params['atr_length'])
+        if adx_vals is None:
+            adx_vals = np.zeros(n, dtype=float)
         sw_low = caches['sw_low'][params['swing_lookback']]
         sw_high = caches['sw_high'][params['swing_lookback']]
 
@@ -1041,7 +1160,12 @@ class SupertrendEmaGridSearchStrategy:
         equity_vals = []
         trades = []
 
-        start_index = max(self.ema_length, self.evaluation_start_index)
+        if self.entry_mode in {'adx_anytime', 'adx_uptrend'}:
+            start_index = max(self.ema_length, self.evaluation_start_index + params['swing_lookback'])
+        else:
+            start_index = max(self.ema_length, self.evaluation_start_index)
+        if self.entry_mode == 'adx_uptrend':
+            start_index = max(start_index, self.evaluation_start_index + self.adx_trend_lookback)
         prev_ema200 = np.roll(ema200, 1)
         prev_ema200[0] = ema200[0]
         supertrend_crossed_above_ema = np.zeros(n, dtype=bool)
@@ -1340,6 +1464,65 @@ class SupertrendEmaGridSearchStrategy:
                             'entry_reason': 'daily_weekly_bear_ema',
                         }
                         trade_count += 1
+            elif self.entry_mode in {'adx_anytime', 'adx_uptrend'}:
+                adx_uptrend_ok = (
+                    self.entry_mode != 'adx_uptrend'
+                    or (
+                        i >= self.adx_trend_lookback
+                        and not np.isnan(adx_vals[i])
+                        and not np.isnan(adx_vals[i - self.adx_trend_lookback])
+                        and (adx_vals[i] - adx_vals[i - self.adx_trend_lookback]) > 0
+                    )
+                )
+                long_sig = (
+                    direction[i] == 1
+                    and c > e2
+                    and adx_vals[i] >= self.adx_threshold
+                    and adx_uptrend_ok
+                    and limited_base_ok
+                )
+                short_sig = (
+                    direction[i] == -1
+                    and c < e2
+                    and adx_vals[i] >= self.adx_threshold
+                    and adx_uptrend_ok
+                    and limited_base_ok
+                )
+
+                if long_sig:
+                    risk = c - sw_low[i]
+                    qty = max((equity * self.leverage) / c, 0)
+                    if qty > 0 and (self.exit_mode == 'trend' or risk > 0):
+                        position = {
+                            'side': 'long', 'entry': c, 'qty': qty,
+                            'tp': c + params['tp_multiplier'] * risk if self.exit_mode == 'tp' else None,
+                            'sl': sw_low[i] if self.exit_mode == 'tp' else None,
+                            'trade_equity': equity,
+                            'entry_index': i,
+                            'entry_reason': (
+                                'daily_supertrend_ema_adx_uptrend'
+                                if self.entry_mode == 'adx_uptrend'
+                                else 'daily_supertrend_ema_adx'
+                            ),
+                        }
+                        trade_count += 1
+                elif short_sig:
+                    risk = sw_high[i] - c
+                    qty = max((equity * self.leverage) / c, 0)
+                    if qty > 0 and (self.exit_mode == 'trend' or risk > 0):
+                        position = {
+                            'side': 'short', 'entry': c, 'qty': qty,
+                            'tp': c - params['tp_multiplier'] * risk if self.exit_mode == 'tp' else None,
+                            'sl': sw_high[i] if self.exit_mode == 'tp' else None,
+                            'trade_equity': equity,
+                            'entry_index': i,
+                            'entry_reason': (
+                                'daily_supertrend_ema_adx_uptrend_short'
+                                if self.entry_mode == 'adx_uptrend'
+                                else 'daily_supertrend_ema_adx_short'
+                            ),
+                        }
+                        trade_count += 1
             else:
                 long_sig = (
                     just_turned_green
@@ -1482,6 +1665,10 @@ class SupertrendEmaGridSearchStrategy:
 
         grid = self.DEFAULT_PARAM_GRID
         atr_cache = {length: self._rma(tr, length) for length in set(grid['atr_length'])}
+        adx_cache = {
+            length: self._build_adx(high_arr, low_arr, close_arr, atr_cache[length], length)
+            for length in set(grid['atr_length'])
+        }
         sw_low_cache = {
             length: pd.Series(low_arr).shift(1).rolling(length).min().values
             for length in set(grid['swing_lookback'])
@@ -1520,6 +1707,7 @@ class SupertrendEmaGridSearchStrategy:
             'sw_high': sw_high_cache,
             'supertrend': supertrend_cache,
             'weekly_direction': weekly_direction_cache,
+            'adx': adx_cache,
         }
 
         results = []

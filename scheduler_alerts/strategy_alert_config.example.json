@@ -35,6 +35,18 @@
       "swing_lookback": 12,
       "tp_multiplier": 1.5,
       "max_trades": 2
+    },
+    "QQQ": {
+      "enabled": false,
+      "source": "manual_adx_example",
+      "mode": "adx_uptrend_tp",
+      "atr_length": 14,
+      "factor": 3.0,
+      "swing_lookback": 12,
+      "tp_multiplier": 1.0,
+      "max_trades": 1,
+      "adx_threshold": 25,
+      "adx_trend_lookback": 3
     }
   }
 }

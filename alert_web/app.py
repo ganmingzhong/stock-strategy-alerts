@@ -23,7 +23,17 @@ DEFAULT_CONFIG = {
     "symbols": {},
 }
 
-VALID_MODES = {"tp", "trend", "cross_trend", "weekly_trend"}
+VALID_MODES = {
+    "tp",
+    "trend",
+    "cross_trend",
+    "weekly_trend",
+    "weekly_bull_ema",
+    "adx_trend",
+    "adx_tp",
+    "adx_uptrend",
+    "adx_uptrend_tp",
+}
 
 app = Flask(__name__)
 
@@ -73,7 +83,7 @@ def normalize_symbol_config(payload):
 
     mode = str(payload.get("mode", "weekly_trend")).strip().lower()
     if mode not in VALID_MODES:
-        raise ValueError("Mode must be one of: tp, trend, cross_trend, weekly_trend.")
+        raise ValueError(f"Mode must be one of: {', '.join(sorted(VALID_MODES))}.")
 
     return symbol, {
         "enabled": bool(payload.get("enabled", True)),
@@ -86,6 +96,8 @@ def normalize_symbol_config(payload):
         "swing_lookback": positive_int(payload.get("swing_lookback"), "swing_lookback"),
         "tp_multiplier": positive_float(payload.get("tp_multiplier"), "tp_multiplier", 1.0),
         "max_trades": positive_int(payload.get("max_trades"), "max_trades"),
+        "adx_threshold": positive_float(payload.get("adx_threshold"), "adx_threshold", 25),
+        "adx_trend_lookback": positive_int(payload.get("adx_trend_lookback"), "adx_trend_lookback", 3),
     }
 
 
