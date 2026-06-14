@@ -23,15 +23,60 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
 YFINANCE_CACHE_DIR = Path(os.getenv("YFINANCE_CACHE_DIR", SCHEDULER_DIR / ".yfinance_cache"))
 
 MODE_CONFIG = {
-    "tp": {"entry_mode": "flip", "exit_mode": "tp", "label": "Supertrend Exit with TP"},
-    "trend": {"entry_mode": "flip", "exit_mode": "trend", "label": "Supertrend Exit on Trend Change"},
-    "cross_trend": {"entry_mode": "cross", "exit_mode": "trend", "label": "Supertrend/EMA Cross + Trend Change"},
-    "weekly_trend": {"entry_mode": "weekly_long", "exit_mode": "trend", "label": "Weekly Filter + Trend Change"},
-    "weekly_bull_ema": {"entry_mode": "weekly_bull_ema", "exit_mode": "trend", "label": "Daily + Weekly + EMA200"},
-    "adx_trend": {"entry_mode": "adx_anytime", "exit_mode": "trend", "label": "Supertrend + EMA200 + ADX"},
-    "adx_tp": {"entry_mode": "adx_anytime", "exit_mode": "tp", "label": "Supertrend + EMA200 + ADX with TP"},
-    "adx_uptrend": {"entry_mode": "adx_uptrend", "exit_mode": "trend", "label": "Supertrend + EMA200 + ADX Rising"},
-    "adx_uptrend_tp": {"entry_mode": "adx_uptrend", "exit_mode": "tp", "label": "Supertrend + EMA200 + ADX Rising with TP"},
+    "tp": {
+        "entry_mode": "flip",
+        "exit_mode": "tp",
+        "label": "Supertrend Exit with TP",
+        "description": "Daily Supertrend flip strategy with take-profit exits. Longs require Supertrend above EMA200; shorts require it below EMA200.",
+    },
+    "trend": {
+        "entry_mode": "flip",
+        "exit_mode": "trend",
+        "label": "Supertrend Exit on Trend Change",
+        "description": "Daily Supertrend flip strategy with trend-change exits. Longs require Supertrend above EMA200; shorts require it below EMA200.",
+    },
+    "cross_trend": {
+        "entry_mode": "cross",
+        "exit_mode": "trend",
+        "label": "Supertrend/EMA Cross + Trend Change",
+        "description": "Entries start on Supertrend/EMA200 cross signals, then continue with follow-on trend entries while the setup stays valid.",
+    },
+    "weekly_trend": {
+        "entry_mode": "weekly_long",
+        "exit_mode": "trend",
+        "label": "Weekly Filter + Trend Change",
+        "description": "Daily Supertrend flip entries that only fire when the weekly trend agrees and Supertrend is on the correct side of EMA200.",
+    },
+    "weekly_bull_ema": {
+        "entry_mode": "weekly_bull_ema",
+        "exit_mode": "trend",
+        "label": "Daily + Weekly + EMA200",
+        "description": "Daily Supertrend trend entries with weekly confirmation and an EMA200 Supertrend filter on both sides.",
+    },
+    "adx_trend": {
+        "entry_mode": "adx_anytime",
+        "exit_mode": "trend",
+        "label": "Supertrend + EMA200 + ADX",
+        "description": "Supertrend entries can occur anytime when daily direction, EMA200, Supertrend vs EMA200, and ADX conditions all align.",
+    },
+    "adx_tp": {
+        "entry_mode": "adx_anytime",
+        "exit_mode": "tp",
+        "label": "Supertrend + EMA200 + ADX with TP",
+        "description": "Same as the ADX anytime strategy, but exits use take-profit instead of trend-change exits.",
+    },
+    "adx_uptrend": {
+        "entry_mode": "adx_uptrend",
+        "exit_mode": "trend",
+        "label": "Supertrend + EMA200 + ADX Rising",
+        "description": "ADX anytime strategy with an extra rule that ADX must be rising over the configured lookback window.",
+    },
+    "adx_uptrend_tp": {
+        "entry_mode": "adx_uptrend",
+        "exit_mode": "tp",
+        "label": "Supertrend + EMA200 + ADX Rising with TP",
+        "description": "ADX rising strategy with take-profit exits instead of trend-change exits.",
+    },
 }
 
 ADX_MODES = {"adx_trend", "adx_tp", "adx_uptrend", "adx_uptrend_tp"}
@@ -172,6 +217,11 @@ def format_strategy_params(params):
     return ", ".join(parts)
 
 
+def format_strategy_description(params):
+    mode = str(params.get("mode", "weekly_trend")).strip().lower()
+    return MODE_CONFIG.get(mode, {}).get("description", "Select a strategy to see its rules.")
+
+
 def collect_latest_events(symbol, params, results, trades):
     if results.empty:
         return []
@@ -179,6 +229,7 @@ def collect_latest_events(symbol, params, results, trades):
     mode = str(params.get("mode", "weekly_trend")).strip().lower()
     mode_label = MODE_CONFIG[mode]["label"]
     strategy_params = format_strategy_params(params)
+    strategy_description = format_strategy_description(params)
     alert_on = set(params.get("alert_on") or ["entry_signal", "exit_signal"])
     latest = results.iloc[-1]
     latest_date = latest["Date"]
@@ -193,6 +244,7 @@ def collect_latest_events(symbol, params, results, trades):
             "body": (
                 f"Signal bar: {pd.to_datetime(latest_date).strftime('%Y-%m-%d')}\n"
                 f"Mode: {mode_label}\n"
+                f"Strategy: {strategy_description}\n"
                 f"Strategy params: {strategy_params}\n"
                 f"Close: {format_price(latest.get('Close'))}\n"
                 f"EMA {params.get('ema_length', 200)}: {format_price(latest.get('ema200'))}\n"
@@ -218,6 +270,7 @@ def collect_latest_events(symbol, params, results, trades):
                 "body": (
                     f"Exit date: {pd.to_datetime(exit_date).strftime('%Y-%m-%d')}\n"
                     f"Mode: {mode_label}\n"
+                    f"Strategy: {strategy_description}\n"
                     f"Strategy params: {strategy_params}\n"
                     f"Side: {str(trade.get('type') or '-').upper()}\n"
                     f"Exit reason: {trade.get('exit_reason') or '-'}\n"
