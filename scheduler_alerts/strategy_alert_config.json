@@ -85,12 +85,14 @@
       "source": "phone_alert_web",
       "mode": "tp",
       "interval": "1d",
-      "history_days": 6000,
-      "atr_length": 10,
-      "factor": 3.0,
-      "swing_lookback": 20,
+      "history_days": 10000,
+      "atr_length": 14,
+      "factor": 3.3,
+      "swing_lookback": 14,
       "tp_multiplier": 1.5,
-      "max_trades": 2
+      "max_trades": 3,
+      "adx_threshold": 25.0,
+      "adx_trend_lookback": 3
     }
   }
 }
