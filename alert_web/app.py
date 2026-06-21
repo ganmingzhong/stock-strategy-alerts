@@ -1,4 +1,5 @@
 import json
+import json
 import os
 from pathlib import Path
 
@@ -26,6 +27,8 @@ DEFAULT_CONFIG = {
 VALID_MODES = {
     "tp",
     "trend",
+    "supertrend_no_ema_trend",
+    "supertrend_no_ema_tp",
     "cross_trend",
     "weekly_trend",
     "weekly_bull_ema",
@@ -38,20 +41,44 @@ VALID_MODES = {
 app = Flask(__name__)
 
 
+def resolve_config_path():
+    candidates = []
+    env_path = os.getenv("STRATEGY_ALERT_CONFIG", "").strip()
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend([
+        CONFIG_PATH,
+        PROJECT_ROOT / "scheduler_alerts" / "strategy_alert_config.json",
+        PROJECT_ROOT / "strategy_alert_config.json",
+    ])
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.exists():
+            return resolved
+    return CONFIG_PATH
+
+
 def load_config():
-    if not CONFIG_PATH.exists():
+    config_path = resolve_config_path()
+    if not config_path.exists():
         return json.loads(json.dumps(DEFAULT_CONFIG))
-    with CONFIG_PATH.open("r", encoding="utf-8") as handle:
+    with config_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
 def save_config(config):
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    config_path = resolve_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
         json.dump(config, handle, indent=2)
         handle.write("\n")
-    tmp_path.replace(CONFIG_PATH)
+    tmp_path.replace(config_path)
 
 
 def positive_int(value, field_name, default=None):
@@ -110,7 +137,7 @@ def index():
 def get_config():
     return jsonify({
         "status": "success",
-        "config_path": str(CONFIG_PATH),
+        "config_path": str(resolve_config_path()),
         "config": load_config(),
     })
 
@@ -131,7 +158,7 @@ def save_symbol():
             "symbol": symbol,
             "previous": previous,
             "current": symbol_config,
-            "config_path": str(CONFIG_PATH),
+            "config_path": str(resolve_config_path()),
         })
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -159,7 +186,7 @@ def delete_symbol(symbol):
             "message": f"Removed alert config for {normalized_symbol}.",
             "symbol": normalized_symbol,
             "removed": previous,
-            "config_path": str(CONFIG_PATH),
+            "config_path": str(resolve_config_path()),
         })
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400

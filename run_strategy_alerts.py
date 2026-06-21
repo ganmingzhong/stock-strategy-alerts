@@ -22,6 +22,29 @@ STATE_PATH = Path(os.getenv("ALERT_STATE_PATH", SCHEDULER_DIR / "alert_state.jso
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
 YFINANCE_CACHE_DIR = Path(os.getenv("YFINANCE_CACHE_DIR", SCHEDULER_DIR / ".yfinance_cache"))
 
+
+def resolve_config_path():
+    candidates = []
+    env_path = os.getenv("STRATEGY_ALERT_CONFIG", "").strip()
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend([
+        CONFIG_PATH,
+        PROJECT_ROOT / "scheduler_alerts" / "strategy_alert_config.json",
+        PROJECT_ROOT / "strategy_alert_config.json",
+        SCHEDULER_DIR / "strategy_alert_config.json",
+    ])
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.exists():
+            return resolved
+    return CONFIG_PATH
+
 MODE_CONFIG = {
     "supertrend_no_ema_trend": {
         "entry_mode": "flip_no_ema",
@@ -342,13 +365,14 @@ def run_symbol(symbol, params):
 
 
 def main():
-    if not CONFIG_PATH.exists():
+    config_path = resolve_config_path()
+    if not config_path.exists():
         raise FileNotFoundError(
-            f"Config file not found: {CONFIG_PATH}. Copy strategy_alert_config.example.json "
+            f"Config file not found: {config_path}. Copy strategy_alert_config.example.json "
             "to strategy_alert_config.json and edit your symbols."
         )
 
-    config = load_json(CONFIG_PATH, {})
+    config = load_json(config_path, {})
     defaults = config.get("defaults", {})
     symbols = config.get("symbols", {})
     state = load_json(STATE_PATH, {"sent": {}})

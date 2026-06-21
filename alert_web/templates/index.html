@@ -238,6 +238,8 @@
                 <option value="weekly_bull_ema">Daily + Weekly + EMA200</option>
                 <option value="tp">Take Profit</option>
                 <option value="trend">Trend Change</option>
+                <option value="supertrend_no_ema_trend">Trend Change Without EMA Filter</option>
+                <option value="supertrend_no_ema_tp">TP Without EMA Filter</option>
                 <option value="cross_trend">Cross Trend</option>
                 <option value="adx_trend">Supertrend + EMA200 + ADX</option>
                 <option value="adx_tp">Supertrend + EMA200 + ADX with TP</option>
@@ -385,7 +387,7 @@
         }
 
         function formatParams(symbol, cfg) {
-            const tpModes = new Set(["tp", "adx_tp", "adx_uptrend_tp"]);
+            const tpModes = new Set(["tp", "adx_tp", "adx_uptrend_tp", "supertrend_no_ema_tp"]);
             const adxModes = new Set(["adx_trend", "adx_tp", "adx_uptrend", "adx_uptrend_tp"]);
             const uptrendModes = new Set(["adx_uptrend", "adx_uptrend_tp"]);
             const tp = tpModes.has(cfg.mode) ? cfg.tp_multiplier : "-";

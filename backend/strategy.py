@@ -206,7 +206,7 @@ class SupertrendStrategy:
         self.leverage = float(leverage)
         self.initial_balance = float(initial_balance)
         self.exit_mode = exit_mode if exit_mode in {'trend', 'tp', 'sl'} else 'trend'
-        self.entry_mode = entry_mode if entry_mode in {'flip', 'cross', 'weekly_long', 'weekly_bull_ema', 'adx_anytime', 'adx_uptrend'} else 'flip'
+        self.entry_mode = entry_mode if entry_mode in {'flip', 'flip_no_ema', 'cross', 'weekly_long', 'weekly_bull_ema', 'adx_anytime', 'adx_uptrend'} else 'flip'
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
         self.adx_threshold = float(adx_threshold)
         self.adx_trend_lookback = int(adx_trend_lookback)
@@ -967,18 +967,20 @@ class SupertrendEmaGridSearchStrategy:
         } else 'composite'
         requested_mode = str(exit_mode or 'tp').strip().lower()
         if requested_mode not in {
-            'tp', 'trend', 'cross_trend', 'weekly_trend', 'weekly_bull_ema',
-            'adx_trend', 'adx_tp', 'adx_uptrend', 'adx_uptrend_tp'
+            'tp', 'trend', 'cross_trend', 'cross_tp', 'weekly_trend', 'weekly_bull_ema',
+            'adx_trend', 'adx_tp', 'adx_uptrend', 'adx_uptrend_tp',
+            'supertrend_no_ema_trend', 'supertrend_no_ema_tp',
         }:
             requested_mode = 'tp'
         self.strategy_mode = requested_mode
-        self.exit_mode = 'tp' if requested_mode in {'tp', 'adx_tp', 'adx_uptrend_tp'} else 'trend'
+        self.exit_mode = 'tp' if requested_mode in {'tp', 'cross_tp', 'adx_tp', 'adx_uptrend_tp', 'supertrend_no_ema_tp'} else 'trend'
         self.entry_mode = (
-            'cross' if requested_mode == 'cross_trend'
+            'cross' if requested_mode in {'cross_trend', 'cross_tp'}
             else 'weekly_bull_ema' if requested_mode == 'weekly_bull_ema'
             else 'weekly_long' if requested_mode == 'weekly_trend'
             else 'adx_uptrend' if requested_mode in {'adx_uptrend', 'adx_uptrend_tp'}
             else 'adx_anytime' if requested_mode in {'adx_trend', 'adx_tp'}
+            else 'flip_no_ema' if requested_mode in {'supertrend_no_ema_trend', 'supertrend_no_ema_tp'}
             else 'flip'
         )
         self.evaluation_start_index = max(int(evaluation_start_index or 0), 0)
@@ -1523,6 +1525,24 @@ class SupertrendEmaGridSearchStrategy:
                             ),
                         }
                         trade_count += 1
+            elif self.entry_mode == 'flip_no_ema':
+                long_sig = (
+                    just_turned_green
+                    and c > e2 and o > e2
+                    and (self.exit_mode == 'trend' or (c - sw_low[i]) > 0)
+                    and limited_base_ok
+                )
+                short_sig = (
+                    just_turned_red
+                    and c < e2 and o < e2
+                    and (self.exit_mode == 'trend' or (sw_high[i] - c) > 0)
+                    and limited_base_ok
+                )
+
+                if long_sig and i + 1 < n:
+                    pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
+                elif short_sig and i + 1 < n:
+                    pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
             else:
                 long_sig = (
                     just_turned_green
