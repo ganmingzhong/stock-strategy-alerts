@@ -107,6 +107,20 @@
       "max_trades": 2,
       "adx_threshold": 25.0,
       "adx_trend_lookback": 3
+    },
+    "V": {
+      "enabled": true,
+      "source": "phone_alert_web",
+      "mode": "supertrend_no_ema_tp",
+      "interval": "1d",
+      "history_days": 900,
+      "atr_length": 10,
+      "factor": 3.6,
+      "swing_lookback": 20,
+      "tp_multiplier": 2.0,
+      "max_trades": 3,
+      "adx_threshold": 25.0,
+      "adx_trend_lookback": 3
     }
   }
 }
