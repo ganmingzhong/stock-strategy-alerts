@@ -40,14 +40,16 @@
     "SPY": {
       "enabled": true,
       "source": "phone_alert_web",
-      "mode": "cross_trend",
+      "mode": "tp",
       "interval": "1d",
       "history_days": 5000,
-      "atr_length": 17,
-      "factor": 3.0,
+      "atr_length": 10,
+      "factor": 3.6,
       "swing_lookback": 10,
-      "tp_multiplier": 1.0,
-      "max_trades": 1
+      "tp_multiplier": 2.0,
+      "max_trades": 2,
+      "adx_threshold": 25.0,
+      "adx_trend_lookback": 3
     },
     "GLD": {
       "enabled": true,
