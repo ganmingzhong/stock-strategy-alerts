@@ -14,13 +14,13 @@
     "AAPL": {
       "enabled": true,
       "source": "phone_alert_web",
-      "mode": "supertrend_no_ema_trend",
+      "mode": "supertrend_no_ema_tp",
       "interval": "1d",
       "history_days": 5000,
-      "atr_length": 17,
-      "factor": 3.6,
+      "atr_length": 10,
+      "factor": 3.3,
       "swing_lookback": 10,
-      "tp_multiplier": 1.0,
+      "tp_multiplier": 2.0,
       "max_trades": 3,
       "adx_threshold": 25.0,
       "adx_trend_lookback": 3
