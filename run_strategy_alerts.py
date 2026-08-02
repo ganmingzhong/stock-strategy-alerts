@@ -14,7 +14,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from strategy import SupertrendStrategy  # noqa: E402
+from strategy import SupertrendStrategy, resolve_weekly_close_day  # noqa: E402
 
 
 CONFIG_PATH = Path(os.getenv("STRATEGY_ALERT_CONFIG", SCHEDULER_DIR / "strategy_alert_config.json"))
@@ -97,9 +97,53 @@ MODE_CONFIG = {
     },
 }
 
+MODE_ALIASES = {
+    "supertrend_tp": "tp",
+    "supertrend_trend": "trend",
+    "supertrend_cross": "cross_trend",
+    "supertrend_cross_tp": "cross_tp",
+    "supertrend_weekly_long": "weekly_trend",
+    "weekly_long": "weekly_trend",
+    "supertrend_weekly_bull_ema": "weekly_bull_ema",
+    "supertrend_adx_anytime": "adx_trend",
+    "supertrend_adx_anytime_tp": "adx_tp",
+    "supertrend_adx_uptrend": "adx_uptrend",
+    "supertrend_adx_uptrend_tp": "adx_uptrend_tp",
+}
+
 ADX_MODES = {"adx_trend", "adx_tp", "adx_uptrend", "adx_uptrend_tp"}
 ADX_UPTREND_MODES = {"adx_uptrend", "adx_uptrend_tp"}
 TP_MODES = {"tp", "adx_tp", "adx_uptrend_tp", "supertrend_no_ema_tp"}
+
+
+def normalize_mode(value):
+    mode = str(value or "weekly_trend").strip().lower()
+    return MODE_ALIASES.get(mode, mode)
+
+
+def get_mode_config(mode):
+    normalized_mode = normalize_mode(mode)
+    if normalized_mode not in MODE_CONFIG:
+        raise ValueError(f"Unsupported mode {mode!r}. Use one of: {', '.join(MODE_CONFIG)}")
+    return normalized_mode, MODE_CONFIG[normalized_mode]
+
+
+def normalize_sent_key(key):
+    parts = str(key or "").split(":")
+    if len(parts) != 4:
+        return str(key or "")
+    symbol, mode, event_type, event_date = parts
+    return f"{symbol}:{normalize_mode(mode)}:{event_type}:{event_date}"
+
+
+def normalize_sent_state(sent):
+    if not isinstance(sent, dict):
+        return {}
+
+    normalized = {}
+    for key, value in sent.items():
+        normalized[normalize_sent_key(key)] = value
+    return normalized
 
 
 def load_json(path, default):
@@ -176,11 +220,7 @@ def merged_params(defaults, symbol_params):
 
 
 def build_strategy(params):
-    mode = str(params.get("mode", "weekly_trend")).strip().lower()
-    if mode not in MODE_CONFIG:
-        raise ValueError(f"Unsupported mode {mode!r}. Use one of: {', '.join(MODE_CONFIG)}")
-
-    mode_config = MODE_CONFIG[mode]
+    mode, mode_config = get_mode_config(params.get("mode", "weekly_trend"))
     return SupertrendStrategy(
         atr_length=int(params.get("atr_length", 14)),
         factor=float(params.get("factor", 3.0)),
@@ -192,6 +232,7 @@ def build_strategy(params):
         initial_balance=float(params.get("initial_balance", 10000)),
         exit_mode=mode_config["exit_mode"],
         entry_mode=mode_config["entry_mode"],
+        weekly_close_day=resolve_weekly_close_day(params.get("weekly_close_day", "friday")),
         adx_threshold=float(params.get("adx_threshold", 25)),
         adx_trend_lookback=int(params.get("adx_trend_lookback", 3)),
     )
@@ -208,8 +249,8 @@ def event_key(symbol, mode, event_type, event_date):
 
 
 def format_strategy_params(params):
-    mode = str(params.get("mode", "weekly_trend")).strip().lower()
-    mode_label = MODE_CONFIG.get(mode, {}).get("label", mode)
+    mode, mode_config = get_mode_config(params.get("mode", "weekly_trend"))
+    mode_label = mode_config.get("label", mode)
 
     parts = [
         f"mode={mode_label}",
@@ -229,6 +270,9 @@ def format_strategy_params(params):
     if mode in ADX_UPTREND_MODES:
         parts.append(f"adx_trend_lookback={int(params.get('adx_trend_lookback', 3))}")
 
+    if params.get("weekly_close_day"):
+        parts.append(f"weekly_close_day={resolve_weekly_close_day(params.get('weekly_close_day'))}")
+
     if params.get("source"):
         parts.append(f"source={params['source']}")
 
@@ -236,16 +280,16 @@ def format_strategy_params(params):
 
 
 def format_strategy_description(params):
-    mode = str(params.get("mode", "weekly_trend")).strip().lower()
-    return MODE_CONFIG.get(mode, {}).get("description", "Select a strategy to see its rules.")
+    mode, mode_config = get_mode_config(params.get("mode", "weekly_trend"))
+    return mode_config.get("description", "Select a strategy to see its rules.")
 
 
 def collect_latest_events(symbol, params, results, trades):
     if results.empty:
         return []
 
-    mode = str(params.get("mode", "weekly_trend")).strip().lower()
-    mode_label = MODE_CONFIG[mode]["label"]
+    mode, mode_config = get_mode_config(params.get("mode", "weekly_trend"))
+    mode_label = mode_config["label"]
     strategy_params = format_strategy_params(params)
     strategy_description = format_strategy_description(params)
     alert_on = set(params.get("alert_on") or ["entry_signal", "exit_signal"])
@@ -358,7 +402,8 @@ def main():
     defaults = config.get("defaults", {})
     symbols = config.get("symbols", {})
     state = load_json(STATE_PATH, {"sent": {}})
-    sent = state.setdefault("sent", {})
+    sent = normalize_sent_state(state.get("sent", {}))
+    state["sent"] = sent
 
     pending_events = []
     for symbol, symbol_params in symbols.items():
