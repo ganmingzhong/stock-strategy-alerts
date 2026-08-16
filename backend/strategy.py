@@ -990,7 +990,9 @@ class SupertrendStrategy:
                 'asset_after': equity,
             })
             trades.append(current_trade)
-            df.loc[df.index[-1], 'signal'] = 2
+            final_signal = df.loc[df.index[-1], 'signal']
+            if pd.isna(final_signal) or int(final_signal) == 0:
+                df.loc[df.index[-1], 'signal'] = 2
             df.loc[df.index[-1], 'asset'] = equity
 
         self.trades = trades

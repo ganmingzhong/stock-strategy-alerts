@@ -1,0 +1,23 @@
+{
+  "defaults": {
+    "interval": "1d",
+    "history_days": 120,
+    "ema_length": 200,
+    "initial_balance": 10000,
+    "leverage": 1,
+    "alert_on": ["entry_signal", "exit_signal"]
+  },
+  "symbols": {
+    "AAPL": {
+      "enabled": true,
+      "mode": "supertrend_no_ema_tp",
+      "interval": "1d",
+      "history_days": 120,
+      "atr_length": 10,
+      "factor": 3.3,
+      "swing_lookback": 10,
+      "tp_multiplier": 2.0,
+      "max_trades": 3
+    }
+  }
+}
