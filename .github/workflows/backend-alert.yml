@@ -2,7 +2,7 @@ name: Backend Alert Scheduler
 
 on:
   schedule:
-    - cron: '23 12 * * *' 
+    - cron: '23 06 * * *' 
 
 jobs:
   run-alert:
