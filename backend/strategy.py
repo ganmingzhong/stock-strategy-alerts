@@ -182,6 +182,7 @@ class SupertrendStrategy:
         max_trades=1,
         leverage=1,
         initial_balance=10000,
+        long_only=False,
         exit_mode='trend',
         entry_mode='flip',
         weekly_close_day='friday',
@@ -207,6 +208,8 @@ class SupertrendStrategy:
         self.initial_balance = float(initial_balance)
         self.exit_mode = exit_mode if exit_mode in {'trend', 'tp', 'sl'} else 'trend'
         self.entry_mode = entry_mode if entry_mode in {'flip', 'flip_no_ema', 'cross', 'weekly_long', 'weekly_bull_ema', 'adx_anytime', 'adx_uptrend'} else 'flip'
+        # weekly_long is a true long-only strategy, regardless of caller defaults.
+        self.long_only = bool(long_only) or self.entry_mode == 'weekly_long'
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
         self.adx_threshold = float(adx_threshold)
         self.adx_trend_lookback = int(adx_trend_lookback)
@@ -381,6 +384,8 @@ class SupertrendStrategy:
         pending_entry = None
         trade_count = 0
         awaiting_cross_entry = self.entry_mode == 'cross'
+        cross_line_trade_taken = False
+        flip_line_trade_taken = False
         swing_low = df['Low'].shift(1).rolling(self.swing_lookback).min().to_numpy()
         swing_high = df['High'].shift(1).rolling(self.swing_lookback).max().to_numpy()
 
@@ -460,6 +465,10 @@ class SupertrendStrategy:
 
             just_turned_green = row['direction'] == 1 and prev['direction'] == -1
             just_turned_red = row['direction'] == -1 and prev['direction'] == 1
+            if self.entry_mode == 'flip' and (just_turned_green or just_turned_red):
+                flip_line_trade_taken = False
+            if self.entry_mode == 'cross' and (just_turned_green or just_turned_red):
+                cross_line_trade_taken = False
 
             reset_breakthru = supertrend_ema_cross[i] if self.entry_mode == 'cross' else ema_breakthru[i]
             can_reset_trade_window = position == 0 and pending_entry is None
@@ -516,6 +525,8 @@ class SupertrendStrategy:
                                 trade_count += 1
                             if pending_entry.get('is_cross_entry'):
                                 awaiting_cross_entry = False
+                            if self.entry_mode == 'cross':
+                                cross_line_trade_taken = True
                             df.loc[df.index[i], 'signal'] = 1
                     else:
                         risk = swing_high[sig_i] - fill_price
@@ -543,6 +554,8 @@ class SupertrendStrategy:
                                 trade_count += 1
                             if pending_entry.get('is_cross_entry'):
                                 awaiting_cross_entry = False
+                            if self.entry_mode == 'cross':
+                                cross_line_trade_taken = True
                             df.loc[df.index[i], 'signal'] = -1
                 pending_entry = None
 
@@ -674,39 +687,53 @@ class SupertrendStrategy:
 
             if self.entry_mode == 'cross':
                 cross_long_cond = (
-                    supertrend_crossed_above_ema[i]
+                    not cross_line_trade_taken
+                    and supertrend_crossed_above_ema[i]
                     and not just_turned_green
                     and not just_turned_red
                     and pd.notna(row['supertrend'])
                     and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
                     and (self.exit_mode == 'trend' or (row['Open'] - swing_low[i]) > 0)
                     and base_ok
                 )
                 cross_short_cond = (
-                    supertrend_crossed_below_ema[i]
+                    not cross_line_trade_taken
+                    and not self.long_only
+                    and supertrend_crossed_below_ema[i]
                     and not just_turned_green
                     and not just_turned_red
                     and pd.notna(row['supertrend'])
                     and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
                     and (self.exit_mode == 'trend' or (swing_high[i] - row['Open']) > 0)
                     and base_ok
                 )
                 # In cross mode, only Supertrend/EMA cross entries are allowed.
                 trend_long_cond = (
-                    not awaiting_cross_entry
+                    not cross_line_trade_taken
+                    and not awaiting_cross_entry
                     and required_cross_side == 'long'
                     and row['direction'] == 1
                     and row['Close'] > row['ema200']
                     and row['Open'] > row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
                     and (self.exit_mode == 'trend' or (row['Close'] - swing_low[i]) > 0)
                     and limited_base_ok
                 )
                 trend_short_cond = (
-                    not awaiting_cross_entry
+                    not cross_line_trade_taken
+                    and not self.long_only
+                    and not awaiting_cross_entry
                     and required_cross_side == 'short'
                     and row['direction'] == -1
                     and row['Close'] < row['ema200']
                     and row['Open'] < row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
                     and (self.exit_mode == 'trend' or (swing_high[i] - row['Close']) > 0)
                     and limited_base_ok
                 )
@@ -715,6 +742,9 @@ class SupertrendStrategy:
                     just_turned_green
                     and row['Close'] > row['ema200']
                     and row['Open'] > row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
                     and row['weekly_direction'] == 1
                     and limited_base_ok
                 )
@@ -722,6 +752,9 @@ class SupertrendStrategy:
                     just_turned_red
                     and row['Close'] < row['ema200']
                     and row['Open'] < row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
                     and row['weekly_direction'] == -1
                     and limited_base_ok
                 )
@@ -729,12 +762,18 @@ class SupertrendStrategy:
                 long_cond = (
                     row['direction'] == 1
                     and row['Close'] > row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
                     and row['weekly_direction'] == 1
                     and limited_base_ok
                 )
                 short_cond = (
                     row['direction'] == -1
                     and row['Close'] < row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
                     and row['weekly_direction'] == -1
                     and limited_base_ok
                 )
@@ -748,9 +787,20 @@ class SupertrendStrategy:
                         and (row['adx'] - df.iloc[i - self.adx_trend_lookback]['adx']) > 0
                     )
                 )
+                supertrend_above_ema = (
+                    pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
+                )
+                supertrend_below_ema = (
+                    pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
+                )
                 long_cond = (
                     row['direction'] == 1
                     and row['Close'] > row['ema200']
+                    and supertrend_above_ema
                     and row['adx'] >= self.adx_threshold
                     and adx_uptrend_ok
                     and limited_base_ok
@@ -758,15 +808,18 @@ class SupertrendStrategy:
                 short_cond = (
                     row['direction'] == -1
                     and row['Close'] < row['ema200']
+                    and supertrend_below_ema
                     and row['adx'] >= self.adx_threshold
                     and adx_uptrend_ok
                     and limited_base_ok
                 )
-            else:
+            elif self.entry_mode == 'flip_no_ema':
                 long_cond = (
                     just_turned_green
                     and row['Close'] > row['ema200']
                     and row['Open'] > row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
                     and (self.exit_mode == 'trend' or (row['Close'] - swing_low[i]) > 0)
                     and limited_base_ok
                 )
@@ -774,12 +827,37 @@ class SupertrendStrategy:
                     just_turned_red
                     and row['Close'] < row['ema200']
                     and row['Open'] < row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and (self.exit_mode == 'trend' or (swing_high[i] - row['Close']) > 0)
+                    and limited_base_ok
+                )
+            else:
+                long_cond = (
+                    not flip_line_trade_taken
+                    and just_turned_green
+                    and row['Close'] > row['ema200']
+                    and row['Open'] > row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] > row['ema200']
+                    and (self.exit_mode == 'trend' or (row['Close'] - swing_low[i]) > 0)
+                    and limited_base_ok
+                )
+                short_cond = (
+                    not flip_line_trade_taken
+                    and just_turned_red
+                    and row['Close'] < row['ema200']
+                    and row['Open'] < row['ema200']
+                    and pd.notna(row['supertrend'])
+                    and pd.notna(row['ema200'])
+                    and row['supertrend'] < row['ema200']
                     and (self.exit_mode == 'trend' or (swing_high[i] - row['Close']) > 0)
                     and limited_base_ok
                 )
 
             if self.entry_mode == 'cross':
-                if cross_long_cond and i + 1 < len(df):
+                if cross_long_cond:
                     pending_entry = {
                         'side': 'long',
                         'signal_bar': i,
@@ -787,7 +865,7 @@ class SupertrendStrategy:
                         'is_cross_entry': True,
                     }
                     df.loc[df.index[i], 'signal'] = 1
-                elif cross_short_cond and i + 1 < len(df):
+                elif cross_short_cond:
                     pending_entry = {
                         'side': 'short',
                         'signal_bar': i,
@@ -795,7 +873,7 @@ class SupertrendStrategy:
                         'is_cross_entry': True,
                     }
                     df.loc[df.index[i], 'signal'] = -1
-                elif trend_long_cond and i + 1 < len(df):
+                elif trend_long_cond:
                     pending_entry = {
                         'side': 'long',
                         'signal_bar': i,
@@ -803,7 +881,7 @@ class SupertrendStrategy:
                         'is_cross_entry': False,
                     }
                     df.loc[df.index[i], 'signal'] = 1
-                elif trend_short_cond and i + 1 < len(df):
+                elif trend_short_cond:
                     pending_entry = {
                         'side': 'short',
                         'signal_bar': i,
@@ -844,7 +922,7 @@ class SupertrendStrategy:
                         }
                         trade_count += 1
                         df.loc[df.index[i], 'signal'] = 1
-                elif short_cond:
+                elif short_cond and not self.long_only:
                     trade_equity = equity
                     entry_price = float(row['Close'])
                     risk = swing_high[i] - entry_price
@@ -877,12 +955,14 @@ class SupertrendStrategy:
                         trade_count += 1
                         df.loc[df.index[i], 'signal'] = -1
             else:
-                if long_cond and i + 1 < len(df):
+                if long_cond:
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
                     df.loc[df.index[i], 'signal'] = 1
-                elif short_cond and i + 1 < len(df):
+                elif short_cond and not self.long_only:
                     pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
                     df.loc[df.index[i], 'signal'] = -1
+                if self.entry_mode == 'flip' and pending_entry is not None:
+                    flip_line_trade_taken = True
 
             if position == 1:
                 df.loc[df.index[i], 'asset'] = equity + ((float(row['Close']) - entry_price) * qty)
@@ -946,6 +1026,7 @@ class SupertrendEmaGridSearchStrategy:
         weekly_close_day='friday',
         adx_threshold=25,
         adx_trend_lookback=3,
+        long_only=False,
     ):
         if ema_length <= 0:
             raise ValueError('EMA length must be greater than zero.')
@@ -969,7 +1050,7 @@ class SupertrendEmaGridSearchStrategy:
         if requested_mode not in {
             'tp', 'trend', 'cross_trend', 'cross_tp', 'weekly_trend', 'weekly_bull_ema',
             'adx_trend', 'adx_tp', 'adx_uptrend', 'adx_uptrend_tp',
-            'supertrend_no_ema_trend', 'supertrend_no_ema_tp',
+            'supertrend_no_ema_trend', 'supertrend_no_ema_tp'
         }:
             requested_mode = 'tp'
         self.strategy_mode = requested_mode
@@ -983,6 +1064,8 @@ class SupertrendEmaGridSearchStrategy:
             else 'flip_no_ema' if requested_mode in {'supertrend_no_ema_trend', 'supertrend_no_ema_tp'}
             else 'flip'
         )
+        # weekly_long is a true long-only strategy, regardless of caller defaults.
+        self.long_only = bool(long_only) or self.entry_mode == 'weekly_long'
         self.evaluation_start_index = max(int(evaluation_start_index or 0), 0)
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
         self.adx_threshold = float(adx_threshold)
@@ -1158,6 +1241,8 @@ class SupertrendEmaGridSearchStrategy:
         position = None
         pending_entry = None
         awaiting_cross_entry = self.entry_mode == 'cross'
+        cross_line_trade_taken = False
+        flip_line_trade_taken = False
         pnl_list = []
         equity_vals = []
         trades = []
@@ -1219,8 +1304,23 @@ class SupertrendEmaGridSearchStrategy:
             bh = high_arr[i]
             bl = low_arr[i]
             e2 = ema200[i]
+            st = supertrend_vals[i]
             just_turned_green = turned_green[i]
             just_turned_red = turned_red[i]
+            if self.entry_mode == 'flip' and (just_turned_green or just_turned_red):
+                flip_line_trade_taken = False
+            if self.entry_mode == 'cross' and (just_turned_green or just_turned_red):
+                cross_line_trade_taken = False
+            supertrend_above_ema = (
+                not np.isnan(st)
+                and not np.isnan(e2)
+                and st > e2
+            )
+            supertrend_below_ema = (
+                not np.isnan(st)
+                and not np.isnan(e2)
+                and st < e2
+            )
 
             reset_breakthru = supertrend_ema_cross[i] if self.entry_mode == 'cross' else ema_breakthru[i]
             if reset_breakthru and position is None and pending_entry is None:
@@ -1263,6 +1363,8 @@ class SupertrendEmaGridSearchStrategy:
                                 trade_count += 1
                             if pending_entry.get('is_cross_entry'):
                                 awaiting_cross_entry = False
+                            if self.entry_mode == 'cross':
+                                cross_line_trade_taken = True
                     else:
                         risk = sw_high[sig_i] - fill
                         if self.exit_mode == 'trend' or risk > 0:
@@ -1278,6 +1380,8 @@ class SupertrendEmaGridSearchStrategy:
                                 trade_count += 1
                             if pending_entry.get('is_cross_entry'):
                                 awaiting_cross_entry = False
+                            if self.entry_mode == 'cross':
+                                cross_line_trade_taken = True
                 pending_entry = None
 
             if position is not None:
@@ -1351,36 +1455,46 @@ class SupertrendEmaGridSearchStrategy:
 
             if self.entry_mode == 'cross':
                 cross_long_sig = (
-                    supertrend_crossed_above_ema[i]
+                    not cross_line_trade_taken
+                    and supertrend_crossed_above_ema[i]
                     and not just_turned_green
                     and not just_turned_red
                     and not np.isnan(supertrend_vals[i])
                     and not np.isnan(e2)
+                    and supertrend_above_ema
                     and (self.exit_mode == 'trend' or (o - sw_low[i]) > 0)
                     and base_ok
                 )
                 cross_short_sig = (
-                    supertrend_crossed_below_ema[i]
+                    not cross_line_trade_taken
+                    and not self.long_only
+                    and supertrend_crossed_below_ema[i]
                     and not just_turned_green
                     and not just_turned_red
                     and not np.isnan(supertrend_vals[i])
                     and not np.isnan(e2)
+                    and supertrend_below_ema
                     and (self.exit_mode == 'trend' or (sw_high[i] - o) > 0)
                     and base_ok
                 )
                 trend_long_sig = (
-                    not awaiting_cross_entry
+                    not cross_line_trade_taken
+                    and not awaiting_cross_entry
                     and required_cross_side == 'long'
                     and direction[i] == 1
                     and c > e2 and o > e2
+                    and supertrend_above_ema
                     and (self.exit_mode == 'trend' or (c - sw_low[i]) > 0)
                     and limited_base_ok
                 )
                 trend_short_sig = (
-                    not awaiting_cross_entry
+                    not cross_line_trade_taken
+                    and not self.long_only
+                    and not awaiting_cross_entry
                     and required_cross_side == 'short'
                     and direction[i] == -1
                     and c < e2 and o < e2
+                    and supertrend_below_ema
                     and (self.exit_mode == 'trend' or (sw_high[i] - c) > 0)
                     and limited_base_ok
                 )
@@ -1417,29 +1531,33 @@ class SupertrendEmaGridSearchStrategy:
                 long_sig = (
                     just_turned_green
                     and c > e2 and o > e2
+                    and supertrend_above_ema
                     and weekly_direction[i] == 1
                     and limited_base_ok
                 )
                 short_sig = (
                     just_turned_red
                     and c < e2 and o < e2
+                    and supertrend_below_ema
                     and weekly_direction[i] == -1
                     and limited_base_ok
                 )
                 if long_sig and i + 1 < n:
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
-                elif short_sig and i + 1 < n:
+                elif short_sig and not self.long_only and i + 1 < n:
                     pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
             elif self.entry_mode == 'weekly_bull_ema':
                 long_sig = (
                     direction[i] == 1
                     and c > e2
+                    and supertrend_above_ema
                     and weekly_direction[i] == 1
                     and limited_base_ok
                 )
                 short_sig = (
                     direction[i] == -1
                     and c < e2
+                    and supertrend_below_ema
                     and weekly_direction[i] == -1
                     and limited_base_ok
                 )
@@ -1455,7 +1573,7 @@ class SupertrendEmaGridSearchStrategy:
                             'entry_reason': 'daily_weekly_bull_ema',
                         }
                         trade_count += 1
-                elif short_sig:
+                elif short_sig and not self.long_only:
                     qty = max((equity * self.leverage) / c, 0)
                     if qty > 0:
                         position = {
@@ -1476,9 +1594,20 @@ class SupertrendEmaGridSearchStrategy:
                         and (adx_vals[i] - adx_vals[i - self.adx_trend_lookback]) > 0
                     )
                 )
+                supertrend_above_ema = (
+                    not np.isnan(st)
+                    and not np.isnan(e2)
+                    and st > e2
+                )
+                supertrend_below_ema = (
+                    not np.isnan(st)
+                    and not np.isnan(e2)
+                    and st < e2
+                )
                 long_sig = (
                     direction[i] == 1
                     and c > e2
+                    and supertrend_above_ema
                     and adx_vals[i] >= self.adx_threshold
                     and adx_uptrend_ok
                     and limited_base_ok
@@ -1486,6 +1615,7 @@ class SupertrendEmaGridSearchStrategy:
                 short_sig = (
                     direction[i] == -1
                     and c < e2
+                    and supertrend_below_ema
                     and adx_vals[i] >= self.adx_threshold
                     and adx_uptrend_ok
                     and limited_base_ok
@@ -1508,7 +1638,7 @@ class SupertrendEmaGridSearchStrategy:
                             ),
                         }
                         trade_count += 1
-                elif short_sig:
+                elif short_sig and not self.long_only:
                     risk = sw_high[i] - c
                     qty = max((equity * self.leverage) / c, 0)
                     if qty > 0 and (self.exit_mode == 'trend' or risk > 0):
@@ -1529,38 +1659,50 @@ class SupertrendEmaGridSearchStrategy:
                 long_sig = (
                     just_turned_green
                     and c > e2 and o > e2
+                    and not np.isnan(st)
+                    and not np.isnan(e2)
                     and (self.exit_mode == 'trend' or (c - sw_low[i]) > 0)
                     and limited_base_ok
                 )
                 short_sig = (
                     just_turned_red
                     and c < e2 and o < e2
+                    and not np.isnan(st)
+                    and not np.isnan(e2)
                     and (self.exit_mode == 'trend' or (sw_high[i] - c) > 0)
                     and limited_base_ok
                 )
 
                 if long_sig and i + 1 < n:
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
-                elif short_sig and i + 1 < n:
+                elif short_sig and not self.long_only and i + 1 < n:
                     pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
             else:
                 long_sig = (
+                    not flip_line_trade_taken
+                    and
                     just_turned_green
                     and c > e2 and o > e2
+                    and supertrend_above_ema
                     and (self.exit_mode == 'trend' or (c - sw_low[i]) > 0)
                     and limited_base_ok
                 )
                 short_sig = (
+                    not flip_line_trade_taken
+                    and
                     just_turned_red
                     and c < e2 and o < e2
+                    and supertrend_below_ema
                     and (self.exit_mode == 'trend' or (sw_high[i] - c) > 0)
                     and limited_base_ok
                 )
 
                 if long_sig and i + 1 < n:
                     pending_entry = {'side': 'long', 'signal_bar': i, 'count_toward_max': True}
-                elif short_sig and i + 1 < n:
+                elif short_sig and not self.long_only and i + 1 < n:
                     pending_entry = {'side': 'short', 'signal_bar': i, 'count_toward_max': True}
+                if self.entry_mode == 'flip' and pending_entry is not None:
+                    flip_line_trade_taken = True
 
             equity_vals.append(max(equity, 0))
 
@@ -1597,10 +1739,10 @@ class SupertrendEmaGridSearchStrategy:
         pnl_arr = np.array(pnl_list)
         wins = pnl_arr[pnl_arr > 0]
         losses = pnl_arr[pnl_arr <= 0]
-        win_rate = len(wins) / total
+        win_rate = len(wins) / total if total else 0.0
         gross_profit = wins.sum() if len(wins) else 0.0
         gross_loss = abs(losses.sum()) if len(losses) else 1e-9
-        profit_factor = gross_profit / gross_loss
+        profit_factor = gross_profit / gross_loss if gross_loss else 0.0
         net_return = (equity / self.initial_equity - 1) * 100
 
         eq_s = pd.Series(equity_vals)
@@ -1619,6 +1761,7 @@ class SupertrendEmaGridSearchStrategy:
             **params,
             'exit_mode': self.strategy_mode,
             'entry_mode': self.entry_mode,
+            'long_only': self.long_only,
             'total_trades': total,
             'win_rate': round(win_rate * 100, 1),
             'profit_factor': round(float(profit_factor), 3),
@@ -1642,6 +1785,7 @@ class SupertrendEmaGridSearchStrategy:
                 row.get('max_trades'),
                 row.get('entry_mode'),
                 row.get('exit_mode'),
+                row.get('long_only'),
             )
             if key in seen:
                 continue
@@ -1770,6 +1914,7 @@ class SupertrendEmaGridSearchStrategy:
                 'sort_by': self.sort_by,
                 'exit_mode': self.strategy_mode,
                 'entry_mode': self.entry_mode,
+                'long_only': self.long_only,
                 'ema': ema200,
                 'best_supertrend': None,
             }
@@ -1795,6 +1940,7 @@ class SupertrendEmaGridSearchStrategy:
             'sort_by': self.sort_by,
             'exit_mode': self.strategy_mode,
             'entry_mode': self.entry_mode,
+            'long_only': self.long_only,
             'ema': ema200,
             'best_supertrend': best_supertrend,
         }
