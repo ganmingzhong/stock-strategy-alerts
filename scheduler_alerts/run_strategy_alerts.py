@@ -190,6 +190,7 @@ def build_strategy(params):
         max_trades=int(params.get("max_trades", 1)),
         leverage=float(params.get("leverage", 1)),
         initial_balance=float(params.get("initial_balance", 10000)),
+        long_only=bool(params.get("long_only", False)),
         exit_mode=mode_config["exit_mode"],
         entry_mode=mode_config["entry_mode"],
         adx_threshold=float(params.get("adx_threshold", 25)),

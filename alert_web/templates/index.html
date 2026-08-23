@@ -108,6 +108,17 @@
             gap: 0 12px;
         }
 
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .checkbox-label input {
+            width: auto;
+        }
+
         .actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -286,6 +297,11 @@
                 </div>
             </div>
 
+            <label class="checkbox-label" for="long_only">
+                <input id="long_only" type="checkbox">
+                Long only
+            </label>
+
             <div class="actions">
                 <button type="button" class="primary" id="save-btn">Save Alert</button>
                 <button type="button" class="secondary" id="reload-btn">Reload Active</button>
@@ -311,6 +327,7 @@
             "max_trades",
             "adx_threshold",
             "adx_trend_lookback",
+            "long_only",
         ];
 
         function showStatus(message, type = "ok") {
@@ -339,7 +356,11 @@
             fields.forEach(field => {
                 const input = document.getElementById(field);
                 if (!input || payload[field] === undefined || payload[field] === null) return;
-                input.value = payload[field];
+                if (input.type === "checkbox") {
+                    input.checked = payload[field] === true || ["true", "1", "yes", "on"].includes(String(payload[field]).toLowerCase());
+                } else {
+                    input.value = payload[field];
+                }
             });
         }
 
@@ -356,6 +377,7 @@
                 max_trades: Number(document.getElementById("max_trades").value),
                 adx_threshold: Number(document.getElementById("adx_threshold").value || 25),
                 adx_trend_lookback: Number(document.getElementById("adx_trend_lookback").value || 3),
+                long_only: document.getElementById("long_only").checked,
                 source: "phone_alert_web",
                 enabled: true,
             };
@@ -393,7 +415,8 @@
             const tp = tpModes.has(cfg.mode) ? cfg.tp_multiplier : "-";
             const adx = adxModes.has(cfg.mode) ? `, ADX >= ${cfg.adx_threshold || 25}` : "";
             const adxTrend = uptrendModes.has(cfg.mode) ? `, ADX N ${cfg.adx_trend_lookback || 3}` : "";
-            return `${cfg.interval || "1d"} | ATR ${cfg.atr_length}, F ${cfg.factor}, Swing ${cfg.swing_lookback}, TP ${tp}, Max ${cfg.max_trades}${adx}${adxTrend}`;
+            const direction = cfg.long_only ? "Long only" : "Long + short";
+            return `${cfg.interval || "1d"} | ${direction} | ATR ${cfg.atr_length}, F ${cfg.factor}, Swing ${cfg.swing_lookback}, TP ${tp}, Max ${cfg.max_trades}${adx}${adxTrend}`;
         }
 
         async function loadActiveSymbols() {

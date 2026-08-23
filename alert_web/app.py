@@ -103,6 +103,18 @@ def positive_float(value, field_name, default=None):
     return number
 
 
+def boolean_value(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    return bool(value)
+
+
 def normalize_symbol_config(payload):
     symbol = str(payload.get("symbol", "")).strip().upper()
     if not symbol:
@@ -114,6 +126,7 @@ def normalize_symbol_config(payload):
 
     return symbol, {
         "enabled": bool(payload.get("enabled", True)),
+        "long_only": boolean_value(payload.get("long_only")),
         "source": str(payload.get("source", "phone_alert_web")).strip() or "phone_alert_web",
         "mode": mode,
         "interval": str(payload.get("interval", "1d")).strip().lower() or "1d",
