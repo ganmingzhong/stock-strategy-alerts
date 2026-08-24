@@ -157,6 +157,21 @@
       "max_trades": 1,
       "adx_threshold": 25.0,
       "adx_trend_lookback": 3
+    },
+    "CEG": {
+      "enabled": true,
+      "long_only": true,
+      "source": "phone_alert_web",
+      "mode": "adx_uptrend",
+      "interval": "1d",
+      "history_days": 5000,
+      "atr_length": 10,
+      "factor": 3.3,
+      "swing_lookback": 14,
+      "tp_multiplier": 1.0,
+      "max_trades": 2,
+      "adx_threshold": 25.0,
+      "adx_trend_lookback": 5
     }
   }
 }
