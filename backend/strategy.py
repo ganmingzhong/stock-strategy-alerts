@@ -188,6 +188,7 @@ class SupertrendStrategy:
         weekly_close_day='friday',
         adx_threshold=25,
         adx_trend_lookback=3,
+        trade_count_logic='legacy',
     ):
         if atr_length <= 0 or ema_length <= 0 or swing_lookback <= 0:
             raise ValueError("ATR, EMA, and swing lookback must be positive numbers.")
@@ -213,6 +214,14 @@ class SupertrendStrategy:
         self.weekly_close_day = resolve_weekly_close_day(weekly_close_day)
         self.adx_threshold = float(adx_threshold)
         self.adx_trend_lookback = int(adx_trend_lookback)
+        requested_trade_count_logic = str(trade_count_logic or 'legacy').strip().lower()
+        if requested_trade_count_logic not in {'legacy', 'reset_on_ema_cross'}:
+            requested_trade_count_logic = 'legacy'
+        # Cross Entry is intentionally kept on its existing reset behavior for now.
+        self.trade_count_logic = (
+            requested_trade_count_logic
+            if self.entry_mode != 'cross' else 'legacy'
+        )
         self.trades = []
 
     def _rma(self, series, length):
@@ -472,15 +481,20 @@ class SupertrendStrategy:
 
             reset_breakthru = supertrend_ema_cross[i] if self.entry_mode == 'cross' else ema_breakthru[i]
             can_reset_trade_window = position == 0 and pending_entry is None
-            if reset_breakthru and can_reset_trade_window:
+            can_reset_on_cross = (
+                self.trade_count_logic == 'reset_on_ema_cross'
+                and self.entry_mode != 'cross'
+            )
+            if reset_breakthru and (can_reset_trade_window or can_reset_on_cross):
                 trade_count = 0
-                pending_entry = None
-                awaiting_cross_entry = self.entry_mode == 'cross'
-                if self.entry_mode == 'cross':
-                    if supertrend_crossed_above_ema[i]:
-                        required_cross_side = 'long'
-                    elif supertrend_crossed_below_ema[i]:
-                        required_cross_side = 'short'
+                if can_reset_trade_window:
+                    pending_entry = None
+                    awaiting_cross_entry = self.entry_mode == 'cross'
+                    if self.entry_mode == 'cross':
+                        if supertrend_crossed_above_ema[i]:
+                            required_cross_side = 'long'
+                        elif supertrend_crossed_below_ema[i]:
+                            required_cross_side = 'short'
 
             if (
                 self.entry_mode == 'cross'

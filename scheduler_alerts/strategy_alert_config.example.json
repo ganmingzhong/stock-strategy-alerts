@@ -5,6 +5,7 @@
     "ema_length": 200,
     "initial_balance": 10000,
     "leverage": 1,
+    "trade_count_logic": "reset_on_ema_cross",
     "alert_on": ["entry_signal", "exit_signal"]
   },
   "symbols": {

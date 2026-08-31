@@ -195,6 +195,7 @@ def build_strategy(params):
         entry_mode=mode_config["entry_mode"],
         adx_threshold=float(params.get("adx_threshold", 25)),
         adx_trend_lookback=int(params.get("adx_trend_lookback", 3)),
+        trade_count_logic=params.get("trade_count_logic", "legacy"),
     )
 
 
@@ -219,6 +220,7 @@ def format_strategy_params(params):
         f"ema_length={int(params.get('ema_length', 200))}",
         f"swing_lookback={int(params.get('swing_lookback', 12))}",
         f"max_trades={int(params.get('max_trades', 1))}",
+        f"trade_count_logic={params.get('trade_count_logic', 'legacy')}",
     ]
 
     if "tp_multiplier" in params or mode in TP_MODES:
