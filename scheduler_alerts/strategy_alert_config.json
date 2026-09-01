@@ -40,17 +40,18 @@
     },
     "SPY": {
       "enabled": true,
+      "long_only": true,
       "source": "phone_alert_web",
-      "mode": "tp",
+      "mode": "adx_tp",
       "interval": "1d",
-      "history_days": 5000,
+      "history_days": 1825,
       "atr_length": 10,
-      "factor": 3.6,
-      "swing_lookback": 10,
-      "tp_multiplier": 2.0,
+      "factor": 3.0,
+      "swing_lookback": 14,
+      "tp_multiplier": 1.5,
       "max_trades": 2,
       "adx_threshold": 25.0,
-      "adx_trend_lookback": 3
+      "adx_trend_lookback": 5
     },
     "GLD": {
       "enabled": true,
@@ -133,17 +134,18 @@
     },
     "NVDA": {
       "enabled": true,
+      "long_only": true,
       "source": "phone_alert_web",
-      "mode": "adx_uptrend",
+      "mode": "adx_tp",
       "interval": "1d",
-      "history_days": 4000,
-      "atr_length": 14,
+      "history_days": 1825,
+      "atr_length": 10,
       "factor": 3.6,
       "swing_lookback": 14,
       "tp_multiplier": 1.0,
-      "max_trades": 2,
+      "max_trades": 3,
       "adx_threshold": 25.0,
-      "adx_trend_lookback": 3
+      "adx_trend_lookback": 5
     },
     "BTC-USD": {
       "enabled": true,
