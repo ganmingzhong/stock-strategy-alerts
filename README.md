@@ -49,3 +49,4 @@ scheduler_alerts/strategy_alert_config.json
 4. Save it.
 5. The scheduler uses it on the next scheduled run.
 Sending the alert whenever there is entry signal trigger for the stock 
+##
